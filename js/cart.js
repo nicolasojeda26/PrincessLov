@@ -90,7 +90,7 @@ const CartService = {
     // Límite de stock: si hay variante, usar el stock de esa variante
     const stockLimite = v
       ? (Array.isArray(producto.variantes)
-        ? (producto.variantes.find(vv => vv.color === v.color && vv.talle === v.talle)?.stock ?? producto.stock)
+        ? (producto.variantes.find(vv => (vv.color || '') === (v.color || '') && (vv.talle || '') === (v.talle || ''))?.stock ?? producto.stock)
         : producto.stock)
       : producto.stock;
 
@@ -155,7 +155,7 @@ const CartService = {
   getItemStock(item) {
     const producto = SheetsService.obtenerProducto(item.id);
     if (item._variant && producto && Array.isArray(producto.variantes) && producto.variantes.length) {
-      const v = producto.variantes.find(vv => vv.color === item._variant.color && vv.talle === item._variant.talle);
+      const v = producto.variantes.find(vv => (vv.color || '') === (item._variant.color || '') && (vv.talle || '') === (item._variant.talle || ''));
       if (v) return v.stock || 0;
     }
     return producto ? (producto.stock || 0) : (item.stock ?? 99);

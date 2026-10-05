@@ -364,7 +364,7 @@ const App = {
         if (!producto) return;
         if (producto.variantes && producto.variantes.length > 0) {
           // Producto con variantes: pedir que elija color/talle desde la ficha
-          this.showToast('Elegí color y talle desde la ficha del producto');
+          this.showToast(this.textoElegirVariante(producto));
           this.openProductModal(id);
           return;
         }
@@ -468,23 +468,26 @@ const App = {
     const variantsContainerEl = document.getElementById('product-modal-variants-container');
     if (variantsEl && variantsContainerEl && producto.variantes && producto.variantes.length > 0) {
       // Group by color
-      const colors = [...new Set(producto.variantes.map(v => v.color))];
+      // Agrupa por color. Si una opción no tiene color (solo talle) no se dibuja el círculo;
+      // si no tiene talle, el botón muestra el color.
+      const colors = [...new Set(producto.variantes.map(v => v.color || ''))];
       let html = '';
       colors.forEach((color, colorIdx) => {
-        const variantsOfColor = producto.variantes.filter(v => v.color === color);
+        const variantsOfColor = producto.variantes.filter(v => (v.color || '') === color);
         const colorHex = variantsOfColor[0]?.colorHex || '#800020';
+        const conTalles = variantsOfColor.some(v => v.talle);
         html += `
           <div class="product-modal__variant-group">
-            <div class="product-modal__variant-label" style="display:flex; align-items:center; gap:0.5rem;">
+            ${color && conTalles ? `<div class="product-modal__variant-label" style="display:flex; align-items:center; gap:0.5rem;">
               <span style="width:16px;height:16px;border-radius:50%;background:${/^#[0-9a-f]{3,8}$/i.test(colorHex) ? colorHex : '#800020'};border:1px solid var(--border);"></span>
               ${escHtml(color)}
-            </div>
+            </div>` : (!color && colorIdx === 0 ? '<div class="product-modal__variant-label">Talle</div>' : '')}
             <div class="product-modal__variant-options">
               ${variantsOfColor.map(v => `
                 <button class="product-modal__variant-option ${v.stock <= 0 ? 'disabled' : ''}" 
-                        data-color="${escHtml(color)}" data-talle="${escHtml(v.talle)}" data-stock="${Number(v.stock) || 0}"
+                        data-color="${escHtml(color)}" data-talle="${escHtml(v.talle || '')}" data-stock="${Number(v.stock) || 0}"
                         onclick="App.selectProductVariant(this)" ${v.stock <= 0 ? 'disabled' : ''}>
-                  ${escHtml(v.talle)}
+                  ${v.talle ? escHtml(v.talle) : `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px;background:${/^#[0-9a-f]{3,8}$/i.test(v.colorHex || '') ? v.colorHex : '#800020'};"></span>${escHtml(color)}`}
                   ${v.stock > 0 && v.stock <= 5 ? `<span style="font-size:0.65rem;color:#F59E0B;"> (${v.stock})</span>` : ''}
                 </button>
               `).join('')}
@@ -517,6 +520,7 @@ const App = {
     modal.dataset.productId = producto.id;
     modal.dataset.selectedColor = '';
     modal.dataset.selectedTalle = '';
+    modal.dataset.variantSel = '';
 
     // Open modal
     modal.classList.add('open');
@@ -530,6 +534,7 @@ const App = {
       modal.dataset.productId = '';
       modal.dataset.selectedColor = '';
       modal.dataset.selectedTalle = '';
+      modal.dataset.variantSel = '';
       document.body.classList.remove('no-scroll');
     }
   },
@@ -541,6 +546,13 @@ const App = {
     thumbEl.classList.add('active');
   },
 
+  /** "Elegí el talle" / "Elegí el color" / "Elegí color y talle" según lo que tenga el producto */
+  textoElegirVariante(producto) {
+    const vs = producto?.variantes || [];
+    const talles = vs.some(v => v.talle), colores = vs.some(v => v.color);
+    return talles && colores ? 'Elegí color y talle' : talles ? 'Elegí el talle' : 'Elegí el color';
+  },
+
   selectProductVariant(btn) {
     if (btn.classList.contains('disabled')) return;
     
@@ -550,6 +562,7 @@ const App = {
     const modal = document.getElementById('product-modal');
     modal.dataset.selectedColor = btn.dataset.color;
     modal.dataset.selectedTalle = btn.dataset.talle;
+    modal.dataset.variantSel = '1';
     
     // Update stock info
     const stock = parseInt(btn.dataset.stock) || 0;
@@ -574,12 +587,12 @@ const App = {
 
     // Check if product has variants and one is required
     if (producto.variantes && producto.variantes.length > 0) {
-      if (!selectedColor || !selectedTalle) {
-        this.showToast('Por favor seleccioná color y talle');
+      if (modal.dataset.variantSel !== '1') {
+        this.showToast(this.textoElegirVariante(producto));
         return;
       }
-      
-      const variant = producto.variantes.find(v => v.color === selectedColor && v.talle === selectedTalle);
+
+      const variant = producto.variantes.find(v => (v.color || '') === selectedColor && (v.talle || '') === selectedTalle);
       if (!variant || variant.stock <= 0) {
         this.showToast('Variante sin stock');
         return;
@@ -588,7 +601,7 @@ const App = {
       // Add with variant info
       const itemWithVariant = { ...producto, _variant: { color: selectedColor, talle: selectedTalle } };
       CartService.addItem(itemWithVariant);
-      this.showToast(`Agregado: ${producto.nombre} (${selectedColor} / ${selectedTalle})`);
+      this.showToast(`Agregado: ${producto.nombre} (${[selectedTalle, selectedColor].filter(Boolean).join(' · ')})`);
     } else {
       // No variants
       if (producto.stock <= 0) {
@@ -609,7 +622,7 @@ const App = {
     const producto = SheetsService.obtenerProducto(productId);
     if (!producto) return;
     if (producto.variantes && producto.variantes.length > 0) {
-      this.showToast('Elegí color y talle desde la ficha del producto');
+      this.showToast(this.textoElegirVariante(producto));
       this.openProductModal(productId);
       return;
     }
@@ -632,11 +645,11 @@ const App = {
 
     let variantText = '';
     if (producto.variantes && producto.variantes.length > 0) {
-      if (!selectedColor || !selectedTalle) {
-        this.showToast('Por favor seleccioná color y talle');
+      if (modal.dataset.variantSel !== '1') {
+        this.showToast(this.textoElegirVariante(producto));
         return;
       }
-      variantText = ` - Color: ${selectedColor}, Talle: ${selectedTalle}`;
+      variantText = ' - ' + [selectedTalle && `Talle: ${selectedTalle}`, selectedColor && `Color: ${selectedColor}`].filter(Boolean).join(', ');
     }
 
     const precioARS = (typeof PromoEngine !== 'undefined' && PromoEngine.precioVistaARS) ? PromoEngine.precioVistaARS(producto) : (producto.precioARSManual || SheetsService.calcularPrecioARS(producto.precioUSD));
@@ -722,7 +735,7 @@ const App = {
           </div>
           <div class="cart-item__details">
             <h4 class="cart-item__name">${escHtml(item.nombre)}</h4>
-            ${item.variante ? `<p class="cart-item__variant">${escHtml(item.variante)}</p>` : ''}
+            ${item.variante ? `<p class="cart-item__variant">${escHtml(String(item.variante).split('/').map(x => x.trim()).filter(Boolean).reverse().join(' · '))}</p>` : ''}
             ${item.sinStock ? '<p class="cart-item__variant cart-item__status-warn">Sin stock en este momento. Elegí otra opción o esperá el reabastecimiento.</p>' : ''}
             ${item.stockAjustado ? `<p class="cart-item__variant cart-item__status-warn">Stock ajustado a ${item.cantidad} u. disponibles.</p>` : ''}
             <div class="cart-item__price-row">

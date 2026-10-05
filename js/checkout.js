@@ -173,7 +173,7 @@ const CheckoutService = {
 
     const items = CartService.items.map(item => `
       <div class="checkout-item">
-        <span>${escHtml(item.nombre)} <b>x${item.cantidad}</b>${item.variante ? ` <small>(${escHtml(item.variante)})</small>` : ''}</span>
+        <span>${escHtml(item.nombre)} <b>x${item.cantidad}</b>${item.variante ? ` <small>(${escHtml(String(item.variante).split('/').map(x => x.trim()).filter(Boolean).reverse().join(' · '))})</small>` : ''}</span>
         <span>${f(item.precioARS * item.cantidad)}</span>
       </div>`).join('');
 

@@ -313,14 +313,14 @@ const AdminProducts = {
     row.dataset.id = this.variantRowId;
     row.innerHTML = `
       <div class="form-group">
-        <label>Color *</label>
+        <label>Color <small>(opcional)</small></label>
         <div style="display:flex; gap:0.5rem; align-items:end;">
           <input type="text" class="variant-color-name" placeholder="Nombre (ej: Borgoña)" value="${this.esc(variant.color || '')}" style="flex:1;">
           <input type="color" class="variant-color-input" value="${/^#[0-9a-f]{6}$/i.test(variant.colorHex || '') ? variant.colorHex : '#800020'}">
         </div>
       </div>
       <div class="form-group">
-        <label>Talle *</label>
+        <label>Talle <small>(opcional)</small></label>
         <input type="text" class="variant-talle" placeholder="Ej: S, M, L, XL / Único" value="${this.esc(variant.talle || '')}">
       </div>
       <div class="form-group">
@@ -419,17 +419,30 @@ const AdminProducts = {
     const catId = document.getElementById('pf-categoria').value;
     const catConfig = CONFIG.categorias.find(c => c.id === catId);
 
-    // Collect variants
+    const irATab = (tab) => document.querySelector(`#product-modal .form-tab[data-tab="${tab}"]`)?.click();
+    // Variantes: alcanza con talle O color (antes exigía los dos y,
+    // si faltaba uno, la fila se descartaba sin avisar)
     const variantes = [];
-    document.querySelectorAll('.variant-row').forEach(row => {
-      const color = row.querySelector('.variant-color-name')?.value?.trim();
-      const colorHex = row.querySelector('.variant-color-input')?.value;
-      const talle = row.querySelector('.variant-talle')?.value?.trim();
-      const stock = parseInt(row.querySelector('.variant-stock')?.value) || 0;
-      if (color && talle) {
-        variantes.push({ color, colorHex, talle, stock });
+    const vistas = new Set();
+    let errorVariante = '';
+    document.querySelectorAll('#variantes-container .variant-row').forEach((row, i) => {
+      const color = row.querySelector('.variant-color-name')?.value?.trim() || '';
+      const colorHex = row.querySelector('.variant-color-input')?.value || '';
+      const talle = row.querySelector('.variant-talle')?.value?.trim() || '';
+      const stock = Math.max(0, parseInt(row.querySelector('.variant-stock')?.value) || 0);
+      if (!color && !talle) {
+        if (stock > 0 && !errorVariante) errorVariante = `En la variante ${i + 1} falta el talle o el color`;
+        return; // fila vacía: se ignora
       }
+      const clave = (color + '|' + talle).toLowerCase();
+      if (vistas.has(clave) && !errorVariante) errorVariante = `La variante "${[talle, color].filter(Boolean).join(' · ')}" está repetida`;
+      vistas.add(clave);
+      variantes.push({ color, colorHex: color ? colorHex : '', talle, stock });
     });
+    if (errorVariante) { irATab('variantes'); AdminApp.toast(errorVariante, 'error'); return; }
+    if (variantes.length && !variantes.some(v => v.stock > 0)) {
+      if (!confirm('Todas las variantes tienen stock 0, así que el producto va a figurar SIN STOCK. ¿Guardar igual?')) { irATab('variantes'); return; }
+    }
 
     // Collect gallery
     const galeria = [];
@@ -452,7 +465,6 @@ const AdminProducts = {
     const imagen = typeof AdminImages !== 'undefined' ? AdminImages.normalizarUrl(imagenRaw) : imagenRaw;
     // El form es novalidate: los campos obligatorios pueden estar en otra
     // pestaña y el navegador bloqueaba el guardado sin decir nada.
-    const irATab = (tab) => document.querySelector(`#product-modal .form-tab[data-tab="${tab}"]`)?.click();
     if (!nombre) { irATab('basico'); AdminApp.toast('El producto necesita un nombre', 'error'); return; }
     if (!catId) { irATab('basico'); AdminApp.toast('Elegí una categoría', 'error'); return; }
     const precioUSD = parseFloat(document.getElementById('pf-preciousd').value);
