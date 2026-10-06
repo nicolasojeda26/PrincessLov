@@ -127,6 +127,7 @@ export default async function handler(req, res) {
         amount: pago.transaction_amount,
         currency: pago.currency_id,
         payerEmail: pago.payer?.email || '',
+        cupon: pago.metadata?.cupon || '',
         paidAt: pago.date_approved || '',
         // El Apps Script descuenta stock solo la primera vez que ve "approved"
         descontarStock: pago.status === 'approved',

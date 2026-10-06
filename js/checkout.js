@@ -309,6 +309,7 @@ const CheckoutService = {
       medioPago: datos.medioPago,
       metodoEnvio: envio ? envio.nombre : '',
       total: CartService.getTotalARS(),
+      cupon: CartService.promoCode || '',
       notas: [datos.notas, CartService.promoCode ? `Cupón: ${CartService.promoCode}` : '', datos.cp ? `CP: ${datos.cp}` : ''].filter(Boolean).join(' | '),
       items: CartService.items.map(i => ({
         productoId: i.id,

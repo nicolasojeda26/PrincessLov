@@ -53,7 +53,7 @@ const HEADERS = {
   PEDIDOS: [
     'ID', 'Fecha', 'Cliente', 'Telefono', 'Email', 'Direccion', 'Localidad',
     'Provincia', 'Estado', 'MedioPago', 'MetodoEnvio', 'Total', 'CostoTotal',
-    'Notas', 'Items', 'MP_PaymentID', 'MP_Status', 'StockDescontado', 'Origen'
+    'Notas', 'Items', 'MP_PaymentID', 'MP_Status', 'StockDescontado', 'Origen', 'Cupon'
   ],
   GASTOS: ['ID', 'Fecha', 'Concepto', 'Monto', 'Categoria', 'Notas'],
   CONFIG: ['Clave', 'Valor'],
@@ -75,7 +75,9 @@ const HEADER_KEY_BY_SHEET = Object.keys(SHEET_NAMES).reduce(function (acc, k) {
 const CONFIG_PUBLICA = ['promos', 'clubPrince_boxes', 'contenido', 'categorias', 'envios',
   'whatsapp', 'instagram', 'nombre', 'margen', 'dolarManual'];
 
-const PUBLIC_GET = ['read', 'config', 'dolar', 'check_stock'];
+// coupon_uses es publico: los codigos ya estan en la config publica y solo
+// devuelve un numero (lo usa el carrito para respetar "Usos max.")
+const PUBLIC_GET = ['read', 'config', 'dolar', 'check_stock', 'coupon_uses'];
 const PUBLIC_POST = ['create_order', 'club_prince_lead', 'subscribe_newsletter', 'arrepentimiento'];
 
 // ============================================
@@ -106,6 +108,7 @@ function doGet(e) {
       case 'dolar': result = getDolarHistory(); break;
       case 'check_stock': result = checkStock(p.ids); break;
       case 'order_status': result = getOrderStatus(p.ref); break;
+      case 'coupon_uses': result = getCouponUses(p.code); break;
       default: result = { error: 'Acción no válida' };
     }
     return jsonResponse(result);
@@ -445,6 +448,7 @@ function createOrder(order, esAdmin) {
     MP_PaymentID: esAdmin ? limpio(order.mpPaymentId, 40) : '',
     MP_Status: esAdmin ? limpio(order.mpStatus, 20) : '',
     Origen: esAdmin ? limpio(order.origen || 'admin', 20) : 'web-whatsapp',
+    Cupon: limpio(order.cupon, 30).toUpperCase(),
   };
 
   const lock = LockService.getScriptLock();
@@ -670,6 +674,7 @@ function processWebhookMP(data) {
         items: [],
         mpPaymentId: data.mpPaymentId,
         mpStatus: data.status,
+        cupon: data.cupon || '',
       });
       return { success: true, creado: true };
     }
@@ -831,6 +836,25 @@ function getOrderStatus(ref) {
     mpStatus: pedido.MP_Status || '',
     total: Number(pedido.Total) || 0,
   };
+}
+
+/**
+ * Cuantos pedidos usaron un cupon, para respetar "Usos máx." del admin.
+ * Cuenta solo pedidos que avanzaron (no pendientes ni cancelados): un carrito
+ * abandonado en Mercado Pago no consume usos. Para pedidos viejos sin la
+ * columna Cupon, lo busca en las Notas ("Cupon: CODIGO" o "Cupón: CODIGO").
+ */
+function getCouponUses(code) {
+  const codigo = String(code || '').toUpperCase().trim();
+  if (!codigo) return { usos: 0 };
+  const enNotas = new RegExp('Cup[oó]n: ' + codigo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(\\s|\\||$)', 'i');
+  const usos = getAllData(SHEET_NAMES.PEDIDOS).filter(function (p) {
+    const estado = String(p.Estado || '').toLowerCase();
+    if (!estado || estado === 'pendiente' || estado === 'cancelado') return false;
+    const cupon = String(p.Cupon || '').toUpperCase().trim();
+    return cupon ? cupon === codigo : enNotas.test(String(p.Notas || ''));
+  }).length;
+  return { usos: usos };
 }
 
 function mapMPStatus(mpStatus) {

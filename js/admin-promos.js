@@ -99,10 +99,10 @@ const AdminPromos = {
             </select>
           </label>
           <label class="promos-field">Valor
-            <input type="number" step="0.01" data-field="valor" value="${c.valor}" placeholder="10">
+            <input type="number" step="0.01" min="0" ${c.tipo === 'fijo' ? '' : 'max="100"'} data-field="valor" value="${c.valor}" placeholder="10">
           </label>
           <label class="promos-field">Usos máx.
-            <input type="number" data-field="usosMax" value="${c.usosMax}" placeholder="1000">
+            <input type="number" min="0" step="1" data-field="usosMax" value="${c.usosMax}" placeholder="1000">
           </label>
         </div>
         <div class="promos-row__grid">
@@ -268,6 +268,18 @@ const AdminPromos = {
       if (el.type === 'checkbox') val = el.checked;
       else if (el.type === 'number') val = Number(val);
       if (field === 'desde' || field === 'hasta' || field === 'fechaLanzamiento') val = this.fromLocalInput(el.value);
+      if (kind === 'cupones' && (field === 'valor' || field === 'usosMax')) {
+        // Un valor negativo encarecería la compra; un % mayor a 100 la regalaría
+        const max = field === 'valor' && rec.tipo !== 'fijo' ? 100 : Infinity;
+        const ok = Math.min(max, Math.max(0, Number.isFinite(val) ? val : 0));
+        if (ok !== val) {
+          const msg = field === 'usosMax' ? 'Los usos no pueden ser negativos'
+            : max === 100 ? 'El % del cupón tiene que estar entre 0 y 100' : 'El valor del cupón no puede ser negativo';
+          AdminApp.toast?.(msg, 'warning');
+          val = ok;
+          el.value = ok;
+        }
+      }
       rec[field] = val;
       this.afterChange();
     };

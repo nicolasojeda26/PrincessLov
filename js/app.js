@@ -849,7 +849,7 @@ const App = {
     }
   },
 
-  applyPromo(e) {
+  async applyPromo(e) {
     e.preventDefault();
     const input = document.getElementById('promo-input');
     const messageEl = document.getElementById('promo-message');
@@ -860,6 +860,13 @@ const App = {
     // Cupones del Motor de Promociones (gestionables desde el admin)
     const promo = (typeof PromoEngine !== 'undefined' && PromoEngine.validarCupon) ? PromoEngine.validarCupon(code) : null;
 
+    // "Usos máx.": cuenta los pedidos que ya confirmaste con este código
+    if (promo && await this.cuponAgotado(code, promo)) {
+      messageEl.textContent = '✗ Este código ya alcanzó su límite de usos';
+      messageEl.className = 'cart__promo-message cart__promo-message--error';
+      return;
+    }
+
     if (promo) {
       CartService.applyPromo(code, promo);
       messageEl.textContent = `✓ ${promo.desc} aplicado`;
@@ -869,6 +876,17 @@ const App = {
     } else {
       messageEl.textContent = '✗ Código inválido o expirado';
       messageEl.className = 'cart__promo-message cart__promo-message--error';
+    }
+  },
+
+  /** true si el cupón ya llegó a "Usos máx." (si la planilla no responde, no se bloquea) */
+  async cuponAgotado(code, promo) {
+    if (!(promo.usosMax > 0) || !SheetsService.appsScriptUrl) return false;
+    try {
+      const data = await SheetsService.fetchFromAppsScript('coupon_uses', { code });
+      return Number(data?.usos) >= promo.usosMax;
+    } catch {
+      return false;
     }
   },
 

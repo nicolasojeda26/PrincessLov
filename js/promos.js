@@ -49,7 +49,8 @@ const PromoEngine = {
         id: String(c.id || 'cup_' + String(c.codigo || '').toLowerCase()),
         codigo: String(c.codigo || '').toUpperCase().trim(),
         tipo: ['percent', 'fijo', 'shipping'].includes(c.tipo) ? c.tipo : 'percent',
-        valor: Number(c.valor) || 0,
+        // Igual que el servidor: nunca negativo y como mucho 100%
+        valor: c.tipo === 'fijo' ? Math.max(0, Number(c.valor) || 0) : Math.min(100, Math.max(0, Number(c.valor) || 0)),
         usosMax: c.usosMax == null ? 1000 : Number(c.usosMax),
         activo: c.activo !== false,
         desc: c.desc || '',
@@ -284,9 +285,9 @@ const PromoEngine = {
     if (!this.config) this.apply();
     const cod = String(code || '').trim().toUpperCase();
     if (!cod) return null;
-    const cpn = this.config.cupones.find(x => x.activo && String(x.codigo).toUpperCase() === cod);
+    const cpn = this.config.cupones.find(x => x.activo && x.usosMax > 0 && String(x.codigo).toUpperCase() === cod);
     if (!cpn) return null;
-    return { id: cpn.id, tipo: cpn.tipo, valor: cpn.valor, desc: cpn.desc || cpn.codigo };
+    return { id: cpn.id, tipo: cpn.tipo, valor: cpn.valor, usosMax: cpn.usosMax, desc: cpn.desc || cpn.codigo };
   },
 
   /* ---------- CUENTA REGRESIVA ---------- */

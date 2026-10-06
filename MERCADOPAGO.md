@@ -78,7 +78,7 @@ Marcá las tres opciones (Production, Preview, Development) y hacé **Redeploy**
 ## Paso 4 — Actualizar el Google Apps Script
 
 El archivo `google-apps-script.gs` de esta carpeta tiene funciones nuevas
-(`check_stock`, `order_status`, descuento de stock). Hay que subirlo:
+(`check_stock`, `order_status`, `coupon_uses`, descuento de stock). Hay que subirlo:
 
 1. Abrí tu planilla → **Extensiones → Apps Script**.
 2. Borrá todo el contenido y pegá el `google-apps-script.gs` completo.
@@ -94,6 +94,11 @@ El archivo `google-apps-script.gs` de esta carpeta tiene funciones nuevas
 > La columna `StockDescontado` se crea sola en la hoja Pedidos la primera vez
 > que entra un pago. No la borres: es lo que evita que un mismo pedido descuente
 > stock dos veces cuando Mercado Pago reenvía la notificación.
+>
+> Lo mismo con la columna `Cupon`: guarda qué código usó cada pedido y con eso
+> se respeta el **"Usos máx."** de cada cupón. Solo cuentan los pedidos que
+> avanzaron (no los pendientes ni cancelados). Mientras el Apps Script no esté
+> actualizado, los cupones siguen funcionando pero sin límite de usos.
 
 ---
 
@@ -181,6 +186,7 @@ No hace falta tocar nada más del código.
 
 ```bash
 node tests/pricing.test.mjs    # precios, cupones, stock, totales de MP
+node tests/cupones.test.mjs    # QA de cupones: limites, usos y carrito = cobro
 node tests/webhook.test.mjs    # que no se puedan falsificar pagos
 ```
 

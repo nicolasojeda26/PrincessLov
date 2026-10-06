@@ -11,12 +11,18 @@
  * ------------------------------------------------------------------
  */
 
-import { getProductos, getCotizacion, getStoreConfig, margenGlobal } from './store.js';
+import { getProductos, getCotizacion, getStoreConfig, margenGlobal, getUsosCupon } from './store.js';
 
 const arr = (a) => (Array.isArray(a) ? a : []);
 const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
 /* ================= Normalizacion de promociones ================= */
+
+/** Un valor mal cargado (negativo, o mas de 100%) nunca puede encarecer ni regalar de mas */
+function valorCupon(c) {
+  const v = Math.max(0, num(c.valor));
+  return c.tipo === 'fijo' ? v : Math.min(100, v);
+}
 
 export function normalizePromos(cfg) {
   return {
@@ -25,7 +31,7 @@ export function normalizePromos(cfg) {
       id: String(c.id || 'cup_' + String(c.codigo || '').toLowerCase()),
       codigo: String(c.codigo || '').toUpperCase().trim(),
       tipo: ['percent', 'fijo', 'shipping'].includes(c.tipo) ? c.tipo : 'percent',
-      valor: num(c.valor),
+      valor: valorCupon(c),
       usosMax: c.usosMax == null ? 1000 : num(c.usosMax),
       activo: c.activo !== false,
       desc: c.desc || '',
@@ -283,8 +289,12 @@ export async function cotizarCarrito({ items, shippingId, promoCode }) {
   let cuponAplicado = null;
   if (promoCode) {
     const cupon = validarCupon(promoCode, promos);
-    if (!cupon) {
+    if (!cupon || cupon.usosMax <= 0) {
       return { ok: false, errores: ['El codigo de descuento no es valido o expiro'] };
+    }
+    const usados = await getUsosCupon(cupon.codigo);
+    if (usados != null && usados >= cupon.usosMax) {
+      return { ok: false, errores: ['El codigo de descuento ya alcanzo su limite de usos'] };
     }
     cuponAplicado = { codigo: cupon.codigo, tipo: cupon.tipo, valor: cupon.valor };
     if (cupon.tipo === 'percent') {
@@ -302,11 +312,9 @@ export async function cotizarCarrito({ items, shippingId, promoCode }) {
     costoEnvio = 0;
   }
 
+  // Puede dar 0 (ej. cupon 100% de influencer con retiro): la cotizacion es
+  // valida, pero Mercado Pago no cobra $0 y create-preference lo deriva.
   const total = Math.max(0, subtotalLineas - totalAuto - descuentoCupon + costoEnvio);
-
-  if (total <= 0) {
-    return { ok: false, errores: ['El total del pedido es invalido'] };
-  }
 
   /* --- Costo estimado (para el margen que muestra el admin) --- */
   const costoTotal = Math.round(
@@ -335,53 +343,57 @@ export async function cotizarCarrito({ items, shippingId, promoCode }) {
  * Los descuentos van como una linea negativa no se permite en MP, asi que
  * se prorratean sobre el precio unitario de cada linea y el resto se ajusta
  * en la ultima, para que la suma de MP sea exactamente el total calculado.
+ * Se trabaja en centavos: si el resto no se divide justo por la cantidad,
+ * la ultima linea se parte en dos (ej. 2 x $9104,27 + 1 x $9104,28).
  */
 export function cotizacionAItemsMP(cot) {
   const descuentoTotal = cot.totalDescuentoAuto + cot.descuentoCupon;
+  const netoProductos = Math.max(0, cot.subtotalLineas - descuentoTotal);
   const items = [];
 
+  const itemDe = (l, quantity, unitPrice) => ({
+    id: String(l.id),
+    title: l.variante ? `${l.nombre} (${l.variante})` : l.nombre,
+    quantity,
+    unit_price: unitPrice,
+    currency_id: 'ARS',
+    picture_url: l.imagen || undefined,
+    category_id: 'fashion',
+  });
+
   if (descuentoTotal <= 0) {
-    cot.lineas.forEach((l) => {
-      items.push({
-        id: String(l.id),
-        title: l.variante ? `${l.nombre} (${l.variante})` : l.nombre,
-        quantity: l.cantidad,
-        unit_price: l.precioUnitario,
-        currency_id: 'ARS',
-        picture_url: l.imagen || undefined,
-        category_id: 'fashion',
-      });
-    });
-  } else {
+    cot.lineas.forEach((l) => items.push(itemDe(l, l.cantidad, l.precioUnitario)));
+  } else if (netoProductos > 0) {
     // Prorrateo proporcional al peso de cada linea
-    const factor = (cot.subtotalLineas - descuentoTotal) / cot.subtotalLineas;
-    let acumulado = 0;
+    const factor = netoProductos / cot.subtotalLineas;
+    const objetivoCts = Math.round(netoProductos * 100);
+    let acumuladoCts = 0;
     cot.lineas.forEach((l, i) => {
-      const esUltima = i === cot.lineas.length - 1;
-      let unit = Math.round(l.precioUnitario * factor * 100) / 100;
-      if (esUltima) {
-        // La ultima linea absorbe el redondeo para cuadrar al peso exacto
-        const objetivo = cot.subtotalLineas - descuentoTotal - acumulado;
-        unit = Math.round((objetivo / l.cantidad) * 100) / 100;
-      } else {
-        acumulado += Math.round(unit * l.cantidad * 100) / 100;
+      if (i < cot.lineas.length - 1) {
+        const unitCts = Math.max(1, Math.round(l.precioUnitario * factor * 100));
+        acumuladoCts += unitCts * l.cantidad;
+        items.push(itemDe(l, l.cantidad, unitCts / 100));
+        return;
       }
-      items.push({
-        id: String(l.id),
-        title: l.variante ? `${l.nombre} (${l.variante})` : l.nombre,
-        quantity: l.cantidad,
-        unit_price: Math.max(0.01, unit),
-        currency_id: 'ARS',
-        picture_url: l.imagen || undefined,
-        category_id: 'fashion',
-      });
+      // La ultima linea absorbe el redondeo para cuadrar al centavo exacto
+      const restoCts = objetivoCts - acumuladoCts;
+      const baseCts = Math.max(1, Math.floor(restoCts / l.cantidad));
+      const conCentavoExtra = Math.max(0, restoCts - baseCts * l.cantidad);
+      if (l.cantidad - conCentavoExtra > 0) {
+        items.push(itemDe(l, l.cantidad - conCentavoExtra, baseCts / 100));
+      }
+      if (conCentavoExtra > 0) items.push(itemDe(l, conCentavoExtra, (baseCts + 1) / 100));
     });
   }
+  // netoProductos === 0: los productos quedaron bonificados por completo y
+  // MP no acepta items en $0, asi que solo se cobra el envio.
 
   if (cot.costoEnvio > 0) {
     items.push({
       id: 'envio',
-      title: `Envio - ${cot.envio.nombre}`,
+      title: netoProductos > 0 || !cot.lineas.length
+        ? `Envio - ${cot.envio.nombre}`
+        : `Envio - ${cot.envio.nombre} (productos bonificados)`,
       quantity: 1,
       unit_price: cot.costoEnvio,
       currency_id: 'ARS',

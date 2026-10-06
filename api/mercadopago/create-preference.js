@@ -100,6 +100,15 @@ export default async function handler(req, res) {
       });
     }
 
+    // Mercado Pago no cobra $0 (ej. cupon 100% de influencer con retiro):
+    // el checkout ofrece cerrar el pedido por WhatsApp.
+    if (cot.total <= 0) {
+      return res.status(409).json({
+        error: 'Tu pedido quedo sin costo con este cupon. Finalizalo por WhatsApp para coordinar la entrega.',
+        totalCero: true,
+      });
+    }
+
     // Aviso (no bloqueante) si el total del navegador no coincide: suele pasar
     // cuando cambio el dolar o vencio una promo mientras la clienta compraba.
     const desfasaje =
@@ -127,6 +136,7 @@ export default async function handler(req, res) {
             metodoEnvio: cot.envio.id,
             total: cot.total,
             costoTotal: cot.costoTotal,
+            cupon: cot.cupon?.codigo || '',
             notas: [
               'Preferencia creada, esperando pago.',
               cot.cupon ? `Cupon: ${cot.cupon.codigo}` : '',

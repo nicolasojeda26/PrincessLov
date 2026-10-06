@@ -239,3 +239,22 @@ export async function getStoreConfig() {
     };
   });
 }
+
+/* ================= Usos de cupones ================= */
+
+/**
+ * Cuantos pedidos ya pagados usaron un cupon (para respetar "Usos max.").
+ * Sin cache: el limite tiene que valer en el momento de cada compra.
+ * Devuelve null si no se puede saber (Apps Script sin configurar, caido o
+ * desactualizado): en ese caso no se bloquea la venta.
+ */
+export async function getUsosCupon(codigo) {
+  if (!appsScriptUrl()) return null;
+  try {
+    const data = await getFromAppsScript('coupon_uses', { code: codigo });
+    return Number.isFinite(Number(data?.usos)) ? Number(data.usos) : null;
+  } catch (e) {
+    console.warn('[store] no se pudieron contar los usos del cupon:', e.message);
+    return null;
+  }
+}
