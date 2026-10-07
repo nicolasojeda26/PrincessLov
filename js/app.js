@@ -1394,11 +1394,15 @@ const App = {
   renderShowcase() {
     const grid = document.querySelector('.cat-showcase__grid'); if (!grid) return;
     const cont = CONFIG.contenido?.showcase;
-    const cards = cont?.cards || [];
-    if (!cards.length) return;
-    // Si hay contenido custom, renderizar desde él; sino mantener HTML estático
+    const todas = cont?.cards || [];
+    if (!todas.length) return;
+    // Las tarjetas marcadas como ocultas no se muestran; la grilla se adapta a las que quedan
+    const cards = todas.filter(c => c && String(c.oculta || '') !== '1');
+    grid.className = 'cat-showcase__grid cat-showcase__grid--n' + cards.length;
+    const seccion = document.getElementById('categories');
+    if (!cards.length) { grid.innerHTML = ''; if (seccion) seccion.hidden = true; return; }
     grid.innerHTML = cards.map((card, idx) => {
-      const large = idx === 0 ? ' cat-card--large' : '';
+      const large = idx === 0 && cards.length >= 3 ? ' cat-card--large' : '';
       const cat = card.categoria || 'todos';
       const safeImg = card.image && /^(https:|assets\/|data:image\/)/.test(card.image) ? card.image : '';
       const img = safeImg || 'data:image/svg+xml;utf8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="600" height="700"><rect width="600" height="700" fill="#eedbd8"/><text x="50%" y="50%" text-anchor="middle" dy=".3em" fill="#9c684c" font-size="20">${escHtml(card.title)}</text></svg>`);

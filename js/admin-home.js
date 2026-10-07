@@ -56,9 +56,23 @@ const HOME_SECTIONS = [
           { k: `showcase.cards.${i}.title`, label: 'Nombre en la tarjeta', max: 30 },
           { k: `showcase.cards.${i}.categoria`, label: 'Lleva a la categoría', type: 'cat' },
           { k: `showcase.cards.${i}.icon`, label: 'Emoji (opcional)', type: 'emoji' },
+          { k: `showcase.cards.${i}.oculta`, label: '¿Se muestra en la tienda?', type: 'select',
+            options: [['', 'Sí, mostrar esta tarjeta'], ['1', 'No, ocultarla']] },
         ],
       })),
     ],
+  },
+  {
+    id: 'promoBand', icon: '🔥', name: 'Banner de ofertas', desc: 'La franja con foto que invita a ver las ofertas. Aparece antes de los productos.',
+    anchor: 'promo-band', vis: 'promoBand',
+    groups: [{ fields: [
+      { k: 'promoBand.image', label: 'Foto', type: 'image' },
+      { k: 'promoBand.kicker', label: 'Texto chiquito', max: 40 },
+      { k: 'promoBand.title', label: 'Título', max: 50 },
+      { k: 'promoBand.desc', label: 'Descripción', max: 160, type: 'textarea' },
+      { k: 'promoBand.cta', label: 'Texto del botón', max: 25 },
+      { k: 'promoBand.categoria', label: 'El botón lleva a…', type: 'cat' },
+    ] }],
   },
   {
     id: 'productos', icon: '👗', name: 'Catálogo de productos', desc: 'El encabezado de la grilla. Los productos se cargan en "Productos".',
@@ -85,18 +99,6 @@ const HOME_SECTIONS = [
         ],
       })),
     ],
-  },
-  {
-    id: 'promoBand', icon: '🔥', name: 'Banner de ofertas', desc: 'La franja con foto que invita a ver las ofertas.',
-    anchor: 'promo-band', vis: 'promoBand',
-    groups: [{ fields: [
-      { k: 'promoBand.image', label: 'Foto', type: 'image' },
-      { k: 'promoBand.kicker', label: 'Texto chiquito', max: 40 },
-      { k: 'promoBand.title', label: 'Título', max: 50 },
-      { k: 'promoBand.desc', label: 'Descripción', max: 160, type: 'textarea' },
-      { k: 'promoBand.cta', label: 'Texto del botón', max: 25 },
-      { k: 'promoBand.categoria', label: 'El botón lleva a…', type: 'cat' },
-    ] }],
   },
   {
     id: 'cta', icon: '💬', name: '¿Tenés dudas? (WhatsApp)', desc: 'El bloque marrón que invita a escribirte por WhatsApp.',
@@ -269,6 +271,10 @@ const AdminHome = {
     if (f.type === 'emoji') {
       return `<div class="form-group form-group--emoji"><label for="${id}">${escHtml(f.label)}</label><input type="text" ${common} maxlength="4" value="${escHtml(v)}"></div>`;
     }
+    if (f.type === 'select') {
+      const opts = f.options.map(([val, txt]) => `<option value="${escHtml(val)}" ${String(v) === val ? 'selected' : ''}>${escHtml(txt)}</option>`).join('');
+      return `<div class="form-group"><label for="${id}">${escHtml(f.label)}</label><select id="${id}" data-k="${escHtml(f.k)}">${opts}</select></div>`;
+    }
     if (f.type === 'cat') {
       const cats = AdminData.getEffectiveCategorias();
       const opts = [{ id: 'todos', nombre: 'Todos los productos', icon: '📦' }, ...cats.filter(c => c.id !== 'todos')]
@@ -283,14 +289,14 @@ const AdminHome = {
           <div class="image-field__row">
             <img class="image-field__thumb" src="${IMG_OK.test(v) ? escHtml(v) : ''}" alt="" ${IMG_OK.test(v) ? '' : 'hidden'}>
             <div class="image-field__inputs">
-              <input type="url" ${common} value="${escHtml(v)}" placeholder="Pegá un link https://… de la foto">
+              <input type="url" ${common} value="${escHtml(v)}" placeholder="Tocá &quot;Subir foto&quot; o pegá un link https://">
               <select data-pick="${escHtml(f.k)}" aria-label="Elegir una foto ya cargada">
-                <option value="">…o elegí una foto que ya tenés</option>
+                <option value="">…o elegí una foto que ya cargaste</option>
                 ${fotos.map(ft => `<option value="${escHtml(ft.url)}">${escHtml(ft.label)}</option>`).join('')}
               </select>
             </div>
           </div>
-          <p class="form-hint image-field__err" hidden>El link tiene que empezar con https:// (subila a Imgur, Cloudinary o Google Drive público).</p>
+          <p class="form-hint image-field__err" hidden>El link tiene que empezar con https://. Lo más fácil: tocá "📷 Subir foto".</p>
         </div>`;
     }
     return `<div class="form-group"><label for="${id}">${escHtml(f.label)}</label><input type="text" ${common} value="${escHtml(v)}"></div>`;
@@ -313,6 +319,10 @@ const AdminHome = {
   },
 
   bindInputs(root) {
+    // Botón "📷 Subir foto" en cada campo de foto (sube a Google Drive, igual que en Productos)
+    if (typeof AdminImages !== 'undefined') {
+      root.querySelectorAll('.image-field input[type="url"]').forEach(inp => AdminImages.attach(inp));
+    }
     root.querySelectorAll('[data-k]').forEach(el => {
       const ev = el.tagName === 'SELECT' ? 'change' : 'input';
       el.addEventListener(ev, () => {
