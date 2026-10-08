@@ -70,7 +70,7 @@ const AdminContent = {
             aria-label="Emoji de ${this.esc(c.nombre)}" onchange="AdminContent.updateCatField('${escJsAttr(c.id)}','icon',this.value)">
           ${c.icon ? `<button type="button" class="btn btn-xs btn-ghost" title="Quitar emoji" onclick="AdminContent.updateCatField('${escJsAttr(c.id)}','icon','')">✕</button>` : ''}
         </td>
-        <td><input type="text" value="${this.esc(c.nombre)}" style="width:100%;" onchange="AdminContent.updateCatField('${escJsAttr(c.id)}','nombre',this.value)">
+        <td><input type="text" value="${this.esc(c.nombre)}" data-id="${this.esc(c.id)}" data-field="nombre" style="width:100%;" onchange="AdminContent.updateCatField('${escJsAttr(c.id)}','nombre',this.value)">
           ${estado}</td>
         <td><small style="color:var(--texto-secundario);" title="El ID no cambia aunque cambies el nombre: así los productos siguen en su categoría">${this.esc(c.id)}</small></td>
         <td><input type="text" value="${this.esc(c.grupo)}" style="width:100%;" placeholder="Elegí un grupo" list="grupos-list" ${esTodos ? 'disabled' : ''}

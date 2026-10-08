@@ -148,7 +148,8 @@ const AdminProducts = {
 
     tbody.innerHTML = products.map(p => {
       const precioARS = AdminApp.dolarRate ? (p.precioUSD * AdminApp.dolarRate * (CONFIG?.cotizacion?.margenGanancia || 1.3)) : 0;
-      const stockClass = p.stock <= 0 ? 'badge-low-stock' : p.stock <= 5 ? 'badge-low-stock' : 'badge-active';
+      // Mismo criterio que las alertas del Inicio: "stock bajo" es 3 o menos
+      const stockClass = p.stock <= 3 ? 'badge-low-stock' : 'badge-active';
       const stockLabel = p.stock <= 0 ? 'Sin stock' : p.stock <= 5 ? `${p.stock} u.` : `${p.stock} u.`;
       const hasVariants = p.variantes && p.variantes.length > 0;
       const variantStock = hasVariants ? p.variantes.reduce((s, v) => s + (v.stock || 0), 0) : p.stock;
@@ -169,13 +170,13 @@ const AdminProducts = {
             ${p.destacado ? ' <span class="badge badge-active">⭐ Destacado</span>' : ''}
           </td>
           <td>${this.esc(p.categoriaOriginal || p.categoria || '-')}</td>
-          <td>${AdminData.formatUSD(p.precioUSD)}</td>
+          <td>${Number(p.precioUSD) > 0 ? AdminData.formatUSD(p.precioUSD) : '<span style="color:var(--texto-secundario);">—</span>'}</td>
           <td>${p.precioARSManual ? AdminData.formatARS(p.precioARSManual) : AdminData.formatARS(precioARS)}${p.precioOferta ? ` <span class="badge" style="background:#F59E0B;color:white;">Oferta: ${AdminData.formatARS(p.precioOferta)}</span>` : ''}</td>
           <td>
             ${hasVariants ? `
               <div style="display:flex; flex-direction:column; gap:2px;">
-                <span class="badge ${variantStock <= 0 ? 'badge-low-stock' : variantStock <= 5 ? 'badge-low-stock' : 'badge-active'}">${variantStock} u. (variantes)</span>
-                <small style="color:var(--texto-secundario);">${p.variantes.length} variantes</small>
+                <span class="badge ${variantStock <= 3 ? 'badge-low-stock' : 'badge-active'}">${variantStock <= 0 ? 'Sin stock' : variantStock + ' u.'}</span>
+                <small style="color:var(--texto-secundario);">${this.esc(p.variantes.map(v => [v.talle, v.color].filter(Boolean).join(' ')).filter(Boolean).slice(0, 4).join(', '))}${p.variantes.length > 4 ? '…' : ''}</small>
               </div>
             ` : `<span class="badge ${stockClass}">${stockLabel}</span>`}
           </td>
@@ -554,7 +555,7 @@ const AdminProducts = {
     const headers = ['ID', 'Nombre', 'Categoria', 'Subcategoria', 'SKU', 'Descripcion', 'DescripcionCorta', 'PrecioUSD', 'PrecioARSManual', 'PrecioOferta', 'MargenPersonalizado', 'Stock', 'StockMin', 'Peso', 'Dimensiones', 'Imagen', 'Galeria', 'Variantes', 'Caracteristicas', 'Tags', 'Activo', 'Destacado', 'SoloWeb', 'SEOTitle', 'SEODesc'];
     const rows = products.map(p => {
       const galeriaStr = (p.galeria || []).map(g => g.url).join(' | ');
-      const variantesStr = (p.variantes || []).map(v => `${v.color}(${v.colorHex})/${v.talle}:${v.stock}`).join(' | ');
+      const variantesStr = (p.variantes || []).map(v => `${v.color || ''}${v.color ? `(${v.colorHex || ''})` : ''}/${v.talle || ''}:${Number(v.stock) || 0}`).join(' | ');
       const specsStr = Object.entries(p.caracteristicas || {}).map(([k, v]) => `${k}:${v}`).join(' | ');
       return [
         p.id, p.nombre, p.categoriaOriginal || p.categoria, p.subcategoria, p.sku,

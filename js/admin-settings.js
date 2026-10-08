@@ -11,11 +11,14 @@ const AdminSettings = {
     };
 
     set('set-nombre', settings.nombre || 'PrincessLov');
-    set('set-whatsapp', settings.whatsapp || '');
-    set('set-email', settings.email || '');
-    set('set-instagram', settings.instagram || '');
-    set('set-dolar-manual', settings.dolarManual || '');
-    set('set-margen', settings.margen || '');
+    // Si todavía no se guardó nada, se muestra lo que la tienda está usando hoy
+    // (antes los campos aparecían vacíos aunque la tienda tuviera WhatsApp e Instagram).
+    const neg = (typeof CONFIG !== 'undefined' && CONFIG.negocio) || {};
+    set('set-whatsapp', settings.whatsapp || neg.whatsapp || '');
+    set('set-email', settings.email || neg.email || '');
+    set('set-instagram', settings.instagram || neg.instagram || '');
+    set('set-dolar-manual', settings.dolarManual || CONFIG?.cotizacion?.cotizacionManual || '');
+    set('set-margen', settings.margen || CONFIG?.cotizacion?.margenGanancia || '');
 
     // Gastos fijos
     const gf = settings.gastosFijos || {};
@@ -48,7 +51,7 @@ const AdminSettings = {
             const el = document.getElementById(id);
             const key = { 'set-nombre': 'nombre', 'set-whatsapp': 'whatsapp', 'set-email': 'email', 'set-instagram': 'instagram', 'set-dolar-manual': 'dolarManual', 'set-margen': 'margen' }[id];
             const val = AdminData.getSettings()[key];
-            if (el && document.activeElement !== el && val != null) el.value = val;
+            if (el && document.activeElement !== el && val != null && val !== '') el.value = val;
           });
         }
       }).catch(() => {});

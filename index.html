@@ -85,7 +85,7 @@
             </div>
           </li>
           <li class="nav__item" data-club-link><a class="nav__link" href="#club-prince">Club Prince 👑</a></li>
-          <li class="nav__item"><a class="nav__link" href="#productos" onclick="App.goAll(); return false;">Novedades</a></li>
+          <li class="nav__item"><a class="nav__link" href="#productos" onclick="App.goNovedades(); return false;">Novedades</a></li>
           <li class="nav__item"><a class="nav__link" href="#productos" onclick="App.filtrarCategoria('ofertas'); return false;">Ofertas</a></li>
           <li class="nav__item"><a class="nav__link" href="#servicios">Servicios</a></li>
         </ul>
@@ -113,7 +113,7 @@
       <span class="mobile-nav__icon">🛍️</span>
       <span>Shop</span>
     </button>
-    <button class="mobile-nav__item" onclick="App.goAll()">
+    <button class="mobile-nav__item" onclick="App.goNovedades()">
       <span class="mobile-nav__icon">✨</span>
       <span>Novedades</span>
     </button>
@@ -149,7 +149,7 @@
           <span class="hero__kicker" data-reveal>Encaje &amp; Feminidad</span>
           <h2 class="hero__title" data-reveal>Lencería Floral</h2>
           <p class="hero__desc" data-reveal>Bralettes y conjuntos de encaje para cada momento.</p>
-          <a class="btn btn--light hero__cta" href="#productos" data-reveal onclick="App.filtrarCategoria('ropa-interior'); scrollToProducts(); return false;">Explorar</a>
+          <a class="btn btn--light hero__cta" href="#productos" data-reveal onclick="App.filtrarCategoria('grupo:lenceria'); scrollToProducts(); return false;">Explorar</a>
         </div>
       </article>
       <article class="hero__slide" data-slide="2">
@@ -232,7 +232,7 @@
         <span class="sec-head__kicker">El universo PrincessLov</span>
         <h2 class="sec-head__title">Explorá por categoría</h2>
       </header>
-      <div class="cat-showcase__grid">
+      <div class="cat-showcase__grid cat-showcase__grid--n3">
         <a href="#productos" class="cat-card cat-card--large" onclick="App.filtrarCategoria('conjuntos'); ComponentReveal.scrollToProducts(); return false;" data-reveal>
           <img src="assets/conjunto-deportivo-borgona.jpg" alt="Conjuntos" loading="lazy">
           <div class="cat-card__overlay">
@@ -248,17 +248,10 @@
             <span class="cat-card__link-under">Comprar →</span>
           </div>
         </a>
-        <a href="#productos" class="cat-card" onclick="App.filtrarCategoria('ropa-interior'); ComponentReveal.scrollToProducts(); return false;" data-reveal>
+        <a href="#productos" class="cat-card" onclick="App.filtrarCategoria('grupo:lenceria'); ComponentReveal.scrollToProducts(); return false;" data-reveal>
           <img src="assets/conjunto-flores-rosa.jpg" alt="Lencería" loading="lazy">
           <div class="cat-card__overlay">
             <h3 class="cat-card__title">Lencería</h3>
-            <span class="cat-card__link-under">Comprar →</span>
-          </div>
-        </a>
-        <a href="#productos" class="cat-card" onclick="App.filtrarCategoria('calzas-largas'); ComponentReveal.scrollToProducts(); return false;" data-reveal>
-          <img src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='600' height='700'><rect width='600' height='700' fill='%23eedbd8'/><text x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%239c684c' font-size='20'>Calzas</text></svg>" alt="Calzas">
-          <div class="cat-card__overlay">
-            <h3 class="cat-card__title">Calzas</h3>
             <span class="cat-card__link-under">Comprar →</span>
           </div>
         </a>
@@ -327,6 +320,7 @@
           <h4 class="drawer__section-title">Ordenar</h4>
           <div class="filter-group" id="filter-sort" role="group" aria-label="Ordenar productos">
             <button class="filter-btn filter-btn--active" onclick="App.setSortOrder('featured')" data-sort="featured">Destacados</button>
+            <button class="filter-btn" onclick="App.setSortOrder('newest')" data-sort="newest">Más nuevos</button>
             <button class="filter-btn" onclick="App.setSortOrder('price-asc')" data-sort="price-asc">Menor precio</button>
             <button class="filter-btn" onclick="App.setSortOrder('price-desc')" data-sort="price-desc">Mayor precio</button>
             <button class="filter-btn" onclick="App.setSortOrder('name')" data-sort="name">Nombre A-Z</button>
@@ -700,7 +694,7 @@
     <ul class="mobile-menu__list">
       <li data-club-link><a href="#club-prince" class="mobile-menu__link" onclick="App.closeMobileMenu()">👑 Club Prince</a></li>
       <li><a href="#" class="mobile-menu__link" onclick="App.closeMobileMenu()">Inicio</a></li>
-      <li><a href="#productos" class="mobile-menu__link" onclick="App.closeMobileMenu(); App.goAll();">Novedades</a></li>
+      <li><a href="#productos" class="mobile-menu__link" onclick="App.closeMobileMenu(); App.goNovedades();">Novedades</a></li>
       <li><a href="#productos" class="mobile-menu__link" onclick="App.closeMobileMenu(); App.openSidebar();">Categorías &amp; Filtros</a></li>
       <li><a href="#productos" class="mobile-menu__link" onclick="App.closeMobileMenu(); App.filtrarCategoria('ofertas');">Ofertas</a></li>
       <li><a href="#servicios" class="mobile-menu__link" onclick="App.closeMobileMenu()">Servicios</a></li>

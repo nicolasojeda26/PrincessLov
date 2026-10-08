@@ -249,14 +249,15 @@
       <section id="section-import" class="admin-section">
         <div class="chart-card">
           <h3>📥 Importar Productos desde Excel</h3>
-          <p style="color:var(--texto-secundario); margin-bottom:1.5rem;">
-            Subí tu planilla Excel (.xlsx) o CSV. El sistema detecta automáticamente las columnas:
-            <strong>Producto, Cantidad, Costo Unitario, Total, Observaciones, DÓLAR, Categoría</strong>.
-            También soporta el formato estándar: ID, Nombre, Categoría, PrecioUSD, Imagen, Stock, Activo, Tags.
+          <p style="color:var(--texto-secundario); margin-bottom:0.75rem;">
+            Subí tu planilla Excel (.xlsx) o CSV. Alcanza con una columna <strong>Nombre</strong> (o Producto); el resto es opcional:
+            <strong>Categoría, Precio, Precio oferta, Stock, Talles, Imagen, Descripción</strong>.
           </p>
           <p style="color:var(--texto-secundario); margin-bottom:1rem; font-size:0.85rem;">
-            💡 <strong>Tip:</strong> Si tu Excel tiene múltiples hojas, vas a poder elegir cuál importar.
-            Las observaciones como "EL COSTO +0,50USD" se suman automáticamente al precio base.
+            💡 Los precios pueden ir en pesos (16.000) o en dólares: se detecta solo y te lo muestra antes de confirmar.
+            Los talles van así: <code>S:1, M:2</code>. Si un producto ya existe (mismo nombre o ID), se actualiza
+            solo con lo que trae el archivo: no se le borra la foto ni los talles. Para editar todo el catálogo,
+            exportalo abajo, cambiá lo que quieras y volvé a subirlo.
           </p>
           <div class="upload-zone" id="upload-zone">
             <div class="upload-icon">📄</div>
@@ -386,7 +387,7 @@
               <button class="btn btn-secondary" onclick="AdminContent.resetCats()">↺ Restaurar</button>
             </div>
             <div class="table-container">
-              <table class="products-table" style="min-width:520px;">
+              <table class="products-table cats-table">
                 <thead><tr><th>Emoji</th><th>Nombre</th><th>ID</th><th>Grupo</th><th>Acciones</th></tr></thead>
                 <tbody id="cats-tbody"></tbody>
               </table>

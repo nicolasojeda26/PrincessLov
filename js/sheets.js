@@ -442,21 +442,79 @@ const SheetsService = {
     return CONFIG.categorias || [];
   },
 
+  /** ¿El producto está en oferta? (precio de oferta o flash sale más barato que el normal) */
+  enOferta(p) {
+    if (!p) return false;
+    const base = this.calcularPrecioARS(p.precioUSD, p);
+    const vista = (typeof PromoEngine !== 'undefined' && PromoEngine.precioVistaARS) ? PromoEngine.precioVistaARS(p) : base;
+    return vista > 0 && vista < base;
+  },
+
+  /** Grupos del menú (sin repetir, ignora mayúsculas/tildes): [{ id:'grupo:lenceria', nombre:'Lencería' }] */
+  obtenerGrupos() {
+    const vistos = new Map();
+    (this.obtenerTodasCategorias() || []).forEach(c => {
+      if (c.id === 'todos') return;
+      const nombre = String(c.grupo || '').trim();
+      const slug = this.slugCategoria(nombre);
+      if (slug && !vistos.has(slug)) vistos.set(slug, { id: 'grupo:' + slug, nombre });
+    });
+    return [...vistos.values()];
+  },
+
+  /** Nombre para mostrar de un filtro: categoría, grupo ("grupo:lenceria") u "ofertas" */
+  nombreFiltro(id) {
+    if (!id || id === 'todos') return '';
+    if (String(id).startsWith('grupo:')) return this.obtenerGrupos().find(g => g.id === id)?.nombre || '';
+    const cat = (this.obtenerTodasCategorias() || []).find(c => c.id === id);
+    if (cat) return String(cat.nombre || '').trim();
+    if (id === 'ofertas') return 'Ofertas';
+    return this.productos.find(p => p.categoria === id)?.categoriaOriginal || '';
+  },
+
+  /**
+   * Filtra por categoría. También acepta:
+   *  - "ofertas": todo lo que tiene precio de oferta o flash sale (+ la categoría Ofertas si existe)
+   *  - "grupo:<nombre>": todas las categorías de ese grupo del menú (ej. toda la Lencería)
+   */
   filtrarPorCategoria(categoriaId) {
-    if (categoriaId === 'todos') return this.productos.filter(p => p.activo);
-    return this.productos.filter(p => p.activo && p.categoria === categoriaId);
+    const activos = this.productos.filter(p => p.activo);
+    if (!categoriaId || categoriaId === 'todos') return activos;
+    if (categoriaId === 'ofertas') return activos.filter(p => p.categoria === 'ofertas' || this.enOferta(p));
+    if (String(categoriaId).startsWith('grupo:')) {
+      const slug = String(categoriaId).slice(6);
+      const ids = new Set((this.obtenerTodasCategorias() || []).filter(c => this.slugCategoria(c.grupo) === slug).map(c => c.id));
+      return activos.filter(p => ids.has(p.categoria));
+    }
+    return activos.filter(p => p.categoria === categoriaId);
+  },
+
+  /** Texto sin tildes ni mayúsculas, para buscar ("camisolin" encuentra "Camisolín") */
+  normalizarTexto(v) {
+    return String(v ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  },
+
+  /**
+   * Versión liviana de una foto subida a Google Drive (las originales pesan
+   * ~500 KB cada una; en la grilla alcanza con 600 px de ancho).
+   */
+  fotoChica(url, ancho = 600) {
+    const u = String(url || '');
+    return /^https:\/\/lh3\.googleusercontent\.com\/d\/[\w-]+$/.test(u) ? `${u}=w${ancho}` : u;
   },
 
   buscarProductos(texto) {
-    const query = texto.toLowerCase().trim();
+    const n = (v) => this.normalizarTexto(v);
+    const query = n(texto).trim();
     if (!query) return this.productos.filter(p => p.activo);
-    
+
     return this.productos.filter(p => p.activo && (
-      p.nombre.toLowerCase().includes(query) ||
-      p.descripcion.toLowerCase().includes(query) ||
-      p.categoriaOriginal.toLowerCase().includes(query) ||
-      p.tags.some(t => t.includes(query)) ||
-      (p.sku && p.sku.toLowerCase().includes(query))
+      n(p.nombre).includes(query) ||
+      n(p.descripcion).includes(query) ||
+      n(p.categoriaOriginal).includes(query) ||
+      n(this.nombreFiltro(p.categoria)).includes(query) ||
+      (p.tags || []).some(t => n(t).includes(query)) ||
+      (p.sku && n(p.sku).includes(query))
     ));
   },
 

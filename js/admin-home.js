@@ -277,7 +277,16 @@ const AdminHome = {
     }
     if (f.type === 'cat') {
       const cats = AdminData.getEffectiveCategorias();
-      const opts = [{ id: 'todos', nombre: 'Todos los productos', icon: '📦' }, ...cats.filter(c => c.id !== 'todos')]
+      const grupos = (typeof SheetsService !== 'undefined' && SheetsService.obtenerGrupos) ? SheetsService.obtenerGrupos() : [];
+      const lista = [
+        { id: 'todos', nombre: 'Todos los productos', icon: '📦' },
+        { id: 'ofertas', nombre: 'Ofertas (todo lo que tiene precio de oferta)', icon: '🔥' },
+        ...grupos.map(g => ({ id: g.id, nombre: `Todo ${g.nombre} (grupo completo)`, icon: '🗂️' })),
+        ...cats.filter(c => c.id !== 'todos' && c.id !== 'ofertas'),
+      ];
+      // Si lo guardado ya no existe (categoría borrada), se avisa en vez de mostrar otra cosa
+      if (v && !lista.some(c => c.id === v)) lista.unshift({ id: v, nombre: `⚠️ ${v} (ya no existe: elegí otra)`, icon: '' });
+      const opts = lista
         .map(c => `<option value="${escHtml(c.id)}" ${c.id === v ? 'selected' : ''}>${escHtml((c.icon ? c.icon + ' ' : '') + c.nombre)}</option>`).join('');
       return `<div class="form-group"><label for="${id}">${escHtml(f.label)}</label><select id="${id}" data-k="${escHtml(f.k)}">${opts}</select></div>`;
     }

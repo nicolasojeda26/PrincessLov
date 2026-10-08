@@ -85,12 +85,12 @@ const AdminData = {
 
   importProducts(csvData) {
     const existing = this.getProducts();
-    const existingIds = new Set(existing.map(p => p.id));
+    const existingIds = new Set(existing.map(p => String(p.id)));
     let added = 0, updated = 0;
 
     csvData.forEach(item => {
-      if (existingIds.has(item.id)) {
-        const idx = existing.findIndex(p => p.id === item.id);
+      if (existingIds.has(String(item.id))) {
+        const idx = existing.findIndex(p => String(p.id) === String(item.id));
         existing[idx] = { ...existing[idx], ...item, fechaModificacion: new Date().toISOString() };
         updated++;
       } else {
@@ -229,7 +229,7 @@ const AdminData = {
     let tocada = false;
     if (variante && vars.length) {
       const [color, talle] = String(variante).split('/').map(x => x.trim());
-      const v = vars.find(x => x.color === color && x.talle === talle);
+      const v = vars.find(x => String(x.color || '').trim() === (color || '') && String(x.talle || '').trim() === (talle || ''));
       if (v) {
         v.stock = Math.max(0, (Number(v.stock) || 0) + delta);
         p.stock = vars.reduce((s, x) => s + (Number(x.stock) || 0), 0);
@@ -241,6 +241,22 @@ const AdminData = {
     this.saveProducts(products);
     window.dispatchEvent(new CustomEvent('admin:stock', { detail: p }));
     return p;
+  },
+
+  /** "Negro / M" → "Talle M · Negro";  "/ S" → "Talle S";  "Rosa /" → "Rosa" */
+  varianteLegible(variante) {
+    const [color, talle] = String(variante || '').split('/').map(x => x.trim());
+    return [talle && `Talle ${talle}`, color].filter(Boolean).join(' · ');
+  },
+
+  /** Precio de venta real en pesos (precio fijo, oferta, flash o USD × dólar × margen) */
+  precioVentaARS(p) {
+    if (!p) return 0;
+    try {
+      if (typeof PromoEngine !== 'undefined' && PromoEngine.precioVistaARS) return Math.round(PromoEngine.precioVistaARS(p)) || 0;
+      if (typeof SheetsService !== 'undefined') return Math.round(SheetsService.calcularPrecioARS(p.precioUSD, p)) || 0;
+    } catch {}
+    return Number(p.precioARSManual) || 0;
   },
 
   getLowStockProducts(threshold = 5) {

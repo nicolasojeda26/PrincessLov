@@ -292,6 +292,8 @@ input, select { font-family: inherit; font-size: inherit; }
 }
 .mega-menu__link:hover { color: var(--primary); padding-left: 6px; }
 .mega-menu__link--all { font-weight: 600; color: var(--primary); }
+.mega-menu__heading a { color: inherit; text-decoration: none; display: block; }
+.mega-menu__heading a:hover { opacity: 0.75; }
 
 .mega-menu__col--promo { display: flex; justify-content: flex-end; }
 .mega-menu__col--promo .mega-menu__promo { max-width: 240px; }

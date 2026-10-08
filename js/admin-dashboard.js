@@ -232,7 +232,10 @@ const AdminDashboard = {
     // Badge de conteo en el título
     const title = card.querySelector('h3');
     if (title) title.innerHTML = `⚠️ Alertas de Stock Bajo <span style="background:#EF4444;color:#fff;border-radius:999px;padding:2px 8px;font-size:12px;margin-left:6px;">${lowStock.length}</span>`;
-    list.innerHTML = lowStock.map(p => `
+    // Primero lo agotado; se muestran 6 y el resto queda plegado (con 30+ avisos tapaba todo el Inicio)
+    lowStock.sort((a, b) => (a.stock || 0) - (b.stock || 0));
+    const VISIBLES = 6;
+    const fila = (p) => `
       <div style="display:flex; align-items:center; gap:0.75rem; padding:0.6rem 0; border-bottom:1px solid var(--gris-200);">
         <span style="color:${p.stock === 0 ? '#EF4444' : '#F59E0B'}; font-weight:700;">${p.stock === 0 ? '🚫' : '⚠️'}</span>
         <span style="flex:1; font-size:0.85rem;">${escHtml(p.nombre)}</span>
@@ -240,7 +243,13 @@ const AdminDashboard = {
           ${p.stock === 0 ? 'Sin stock' : `Solo ${p.stock} u.`}
         </span>
       </div>
-    `).join('');
+    `;
+    const resto = lowStock.slice(VISIBLES);
+    list.innerHTML = lowStock.slice(0, VISIBLES).map(fila).join('') + (resto.length ? `
+      <details style="margin-top:0.5rem;">
+        <summary style="cursor:pointer; font-size:0.85rem; font-weight:600; color:var(--borgona-300); padding:0.4rem 0;">Ver los ${resto.length} restantes</summary>
+        ${resto.map(fila).join('')}
+      </details>` : '');
   },
 
   /* ========== FINANCIAL SECTION ========== */

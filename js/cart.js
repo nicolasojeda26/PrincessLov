@@ -100,9 +100,12 @@ const CartService = {
       : SheetsService.calcularPrecioARS(producto.precioUSD, producto);
     const precioUSD = producto.precioUSD;
 
-    if (!(stockLimite > 0)) return;
+    if (!(stockLimite > 0)) return false;
 
+    // Devuelve 'ok' si sumó, 'max' si ya estaban todas las unidades en el carrito
+    let resultado = 'ok';
     if (existing) {
+      if (existing.cantidad >= stockLimite) resultado = 'max';
       existing.cantidad = Math.min(existing.cantidad + cantidad, stockLimite);
     } else {
       const item = {
@@ -123,6 +126,7 @@ const CartService = {
     }
 
     this.save();
+    return resultado;
   },
 
   /**

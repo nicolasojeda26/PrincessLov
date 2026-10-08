@@ -113,7 +113,9 @@ export function precioUnitarioARS(producto, promos, dolar, margen, ahora = Date.
   const prev = preventaDeProducto(producto, promos, ahora);
   if (prev && prev.precioUSD > 0) usd = prev.precioUSD;
 
-  const base = calcularPrecioARS(usd, producto, dolar, margen);
+  let base = calcularPrecioARS(usd, producto, dolar, margen);
+  // Igual que PromoEngine.precioVistaARS: con precio fijo en pesos, el flash descuenta de ese precio
+  if (flash && producto.precioARSManual > 0) base = Math.round(producto.precioARSManual * (1 - flash.descuento / 100));
 
   if (producto.precioOferta > 0 && producto.precioOferta < base) {
     return Math.round(producto.precioOferta);

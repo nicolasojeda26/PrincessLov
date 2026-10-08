@@ -3484,3 +3484,11 @@ details.tech-box > summary { cursor: pointer; font-weight: 700; color: var(--bor
 .ars-preview { color: #15803d; font-weight: 600; }
 .ars-preview:empty { display: none; }
 .ars-preview--error { color: #b91c1c; }
+
+/* Categorías: en celular la tabla se desliza de costado en vez de aplastar el nombre */
+.cats-table { min-width: 760px; }
+.cats-table td:nth-child(2) { min-width: 200px; }
+.cats-table td:nth-child(4) { min-width: 170px; }
+
+/* Deja lugar para la barra fija "Tenés cambios sin guardar" (no tapa los botones del final) */
+#promos-root { padding-bottom: 5.5rem; }

@@ -163,7 +163,7 @@ const CONFIG = {
     promoBar: ["Envíos gratis en Puerto Iguazú", "Nueva colección Primavera", "Precios en pesos argentinos"],
     hero: [
       { kicker: "Nueva colección Primavera", title: "Deportivo & Confort", desc: "Telas técnicas, cortes favorecedores y elegancia en cada detalle.", cta: "Descubrir", image: "assets/conjunto-deportivo-borgona.jpg", categoria: "conjuntos" },
-      { kicker: "Encaje & Feminidad", title: "Lencería Floral", desc: "Bralettes y conjuntos de encaje para cada momento.", cta: "Explorar", image: "assets/conjunto-flores-rosa.jpg", categoria: "ropa-interior" },
+      { kicker: "Encaje & Feminidad", title: "Lencería Floral", desc: "Bralettes y conjuntos de encaje para cada momento.", cta: "Explorar", image: "assets/conjunto-flores-rosa.jpg", categoria: "grupo:lenceria" },
       { kicker: "Descanso con estilo", title: "Pijamas & Suéteres", desc: "Comodidad absoluta con diseños coquetos y dulces.", cta: "Ver pijamas", image: "assets/pijama-corazones-negro.jpg", categoria: "pijamas" },
     ],
     showcase: {
@@ -172,8 +172,7 @@ const CONFIG = {
       cards: [
         { categoria: "conjuntos", title: "Conjuntos", icon: "👚", image: "assets/conjunto-deportivo-borgona.jpg" },
         { categoria: "pijamas", title: "Pijamas", icon: "", image: "assets/pijama-corazones-negro.jpg" },
-        { categoria: "ropa-interior", title: "Lencería", icon: "", image: "assets/conjunto-flores-rosa.jpg" },
-        { categoria: "calzas-largas", title: "Calzas", icon: "", image: "" },
+        { categoria: "grupo:lenceria", title: "Lencería", icon: "", image: "assets/conjunto-flores-rosa.jpg" },
       ],
     },
     servicios: {

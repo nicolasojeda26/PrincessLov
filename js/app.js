@@ -24,6 +24,9 @@ const App = {
       CartService.sincronizarStock();
 
       this.renderContenidoCustom?.();
+      // Los textos del Club Prince se pintan apenas carga la página, antes de que
+      // llegue lo publicado desde el admin: se repintan ahora con la versión final.
+      if (typeof ClubPrince !== 'undefined') ClubPrince.renderBoxesFromConfig?.();
       this.renderDolarTicker();
       this.renderSidebarFilters();
       this.renderCatBar();
@@ -37,6 +40,7 @@ const App = {
       // Restaurar filtros: URL tiene prioridad sobre sessionStorage
       this._loadFromURL();
       this._loadFilters();
+      this._validarFiltros();
       this._applyFilterUI();
 
       this.aplicarFiltros();
@@ -105,8 +109,19 @@ const App = {
 
   /* ---------- IR A TODOS LOS PRODUCTOS ---------- */
   goAll() {
+    if (this.sortOrder === 'newest') this.setSortOrder('featured');
     this.filtrarCategoria('todos');
     this.setStockFilter('all');
+    ComponentReveal.scrollToProducts();
+  },
+
+  /** "Novedades": todo el catálogo con lo último cargado primero */
+  goNovedades() {
+    this.categoriaActual = 'todos';
+    this.stockFilter = 'all';
+    this.setSortOrder('newest');
+    this.filtrarCategoria('todos');
+    const t = document.getElementById('productos-title'); if (t) t.textContent = 'Novedades';
     ComponentReveal.scrollToProducts();
   },
 
@@ -131,7 +146,9 @@ const App = {
 
     // Ordenar por el precio que ve la clienta (respeta precio manual en pesos y ofertas)
     const precio = (p) => (typeof PromoEngine !== 'undefined' && PromoEngine.precioVistaARS) ? PromoEngine.precioVistaARS(p) : SheetsService.calcularPrecioARS(p.precioUSD, p);
+    const orden = new Map(SheetsService.productos.map((p, i) => [p.id, i]));
     switch (this.sortOrder) {
+      case 'newest': productos.sort((a, b) => orden.get(b.id) - orden.get(a.id)); break; // lo último cargado primero
       case 'price-asc': productos.sort((a, b) => precio(a) - precio(b)); break;
       case 'price-desc': productos.sort((a, b) => precio(b) - precio(a)); break;
       case 'name': productos.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')); break;
@@ -142,6 +159,8 @@ const App = {
   },
 
   filtrarCategoria(catId) {
+    // Un link a una categoría o grupo que ya no existe muestra todo (no una página vacía)
+    if (catId !== 'todos' && !SheetsService.nombreFiltro(catId)) catId = 'todos';
     this.categoriaActual = catId;
 
     // Sidebar filters
@@ -159,11 +178,8 @@ const App = {
     // Section title
     const titleEl = document.getElementById('productos-title');
     if (titleEl) {
-      if (catId === 'todos') titleEl.textContent = CONFIG.contenido?.productos?.title || 'Todos los productos';
-      else {
-        const cat = SheetsService.obtenerCategoriasConConteo().find(c => c.id === catId);
-        titleEl.textContent = cat ? cat.nombre : catId;
-      }
+      if (catId === 'todos') titleEl.textContent = this.sortOrder === 'newest' ? 'Novedades' : (CONFIG.contenido?.productos?.title || 'Todos los productos');
+      else titleEl.textContent = SheetsService.nombreFiltro(catId) || 'Productos';
     }
 
     this._saveFilters();
@@ -186,6 +202,10 @@ const App = {
     document.querySelectorAll('#filter-sort .filter-btn').forEach(btn => {
       btn.classList.toggle('filter-btn--active', btn.dataset.sort === order);
     });
+    const titleEl = document.getElementById('productos-title');
+    if (titleEl && this.categoriaActual === 'todos') {
+      titleEl.textContent = order === 'newest' ? 'Novedades' : (CONFIG.contenido?.productos?.title || 'Todos los productos');
+    }
     this._saveFilters();
     this._syncURL();
     this.aplicarFiltros();
@@ -207,10 +227,20 @@ const App = {
       const raw = sessionStorage.getItem('pl_filters');
       if (!raw) return;
       const f = JSON.parse(raw);
-      if (f.cat && f.cat !== 'todos') this.categoriaActual = f.cat;
-      if (f.stock && f.stock !== 'all') this.stockFilter = f.stock;
-      if (f.sort && f.sort !== 'featured') this.sortOrder = f.sort;
+      // El link (?cat=…) tiene prioridad sobre lo que quedó guardado de la visita anterior
+      const url = new URLSearchParams(window.location.search);
+      if (!url.has('cat') && f.cat && f.cat !== 'todos') this.categoriaActual = f.cat;
+      if (!url.has('stock') && f.stock && f.stock !== 'all') this.stockFilter = f.stock;
+      if (!url.has('sort') && f.sort && f.sort !== 'featured') this.sortOrder = f.sort;
     } catch {}
+  },
+
+  /** Si el filtro guardado o del link ya no existe (categoría borrada o renombrada), vuelve a "Todos" */
+  _validarFiltros() {
+    const c = this.categoriaActual;
+    if (c && c !== 'todos' && !SheetsService.nombreFiltro(c)) this.categoriaActual = 'todos';
+    if (!['all', 'in', 'out'].includes(this.stockFilter)) this.stockFilter = 'all';
+    if (!['featured', 'newest', 'price-asc', 'price-desc', 'name'].includes(this.sortOrder)) this.sortOrder = 'featured';
   },
 
   _applyFilterUI() {
@@ -234,9 +264,9 @@ const App = {
     // Título de sección
     const titleEl = document.getElementById('productos-title');
     if (titleEl && this.categoriaActual !== 'todos') {
-      const cat = SheetsService.obtenerCategoriasConConteo().find(c => c.id === this.categoriaActual);
-      if (cat) titleEl.textContent = cat.nombre;
-    }
+      const nombre = SheetsService.nombreFiltro(this.categoriaActual);
+      if (nombre) titleEl.textContent = nombre;
+    } else if (titleEl && this.sortOrder === 'newest') titleEl.textContent = 'Novedades';
   },
 
   /* ---------- FILTROS EN URL ---------- */
@@ -329,7 +359,7 @@ const App = {
           <div class="product-card__media">
             ${badge}
             ${countdown}
-            <img class="product-card__image" src="${escHtml(p.imagen)}" alt="${escHtml(p.nombre)}"
+            <img class="product-card__image" src="${escHtml(SheetsService.fotoChica(p.imagen, 600))}" alt="${escHtml(p.nombre)}"
                  loading="lazy"
                  onerror="this.onerror=null;this.src='data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22300%22 height=%22400%22><rect width=%22300%22 height=%22400%22 fill=%22%23eedbd8%22/><text x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22 dy=%22.3em%22 fill=%22%239c684c%22 font-size=%2216%22>PrincessLov</text></svg>'">
             <button class="product-card__quick" data-id="${escHtml(p.id)}" aria-label="Agregar ${escHtml(p.nombre)} al carrito" ${sinStock ? 'disabled' : ''}>
@@ -337,7 +367,7 @@ const App = {
             </button>
           </div>
           <div class="product-card__info">
-            <div class="product-card__cat">${escHtml(p.categoriaOriginal)}</div>
+            <div class="product-card__cat">${escHtml(SheetsService.nombreFiltro(p.categoria) || p.categoriaOriginal)}</div>
             <h3 class="product-card__name">${escHtml(p.nombre)}</h3>
             <div class="product-card__prices">
               ${precioARS < basePrecio
@@ -368,10 +398,7 @@ const App = {
           this.openProductModal(id);
           return;
         }
-        if (producto.stock > 0) {
-          CartService.addItem(producto);
-          this.showToast(`Agregado: ${producto.nombre}`);
-        }
+        if (producto.stock > 0) this.avisarAgregado(CartService.addItem(producto), producto.nombre);
       });
     });
   },
@@ -396,7 +423,7 @@ const App = {
     if (thumbsContainer) {
       const images = [producto.imagen, ...(producto.galeria || []).map(g => g.url)].filter(Boolean);
       thumbsContainer.innerHTML = images.map((img, idx) => `
-        <img class="product-modal__thumb ${idx === 0 ? 'active' : ''}" src="${escHtml(img)}" alt="${escHtml(producto.nombre)} - vista ${idx + 1}" 
+        <img class="product-modal__thumb ${idx === 0 ? 'active' : ''}" src="${escHtml(SheetsService.fotoChica(img, 200))}" data-full="${escHtml(img)}" alt="${escHtml(producto.nombre)} - vista ${idx + 1}" 
              onclick="App.switchProductModalImage(this)" loading="lazy" onerror="this.remove()">
       `).join('');
     }
@@ -541,7 +568,7 @@ const App = {
 
   switchProductModalImage(thumbEl) {
     const mainImg = document.getElementById('product-modal-main-img');
-    if (mainImg && thumbEl) mainImg.src = thumbEl.src;
+    if (mainImg && thumbEl) mainImg.src = thumbEl.dataset.full || thumbEl.src;
     document.querySelectorAll('.product-modal__thumb').forEach(t => t.classList.remove('active'));
     thumbEl.classList.add('active');
   },
@@ -600,16 +627,14 @@ const App = {
       
       // Add with variant info
       const itemWithVariant = { ...producto, _variant: { color: selectedColor, talle: selectedTalle } };
-      CartService.addItem(itemWithVariant);
-      this.showToast(`Agregado: ${producto.nombre} (${[selectedTalle, selectedColor].filter(Boolean).join(' · ')})`);
+      this.avisarAgregado(CartService.addItem(itemWithVariant), `${producto.nombre} (${[selectedTalle, selectedColor].filter(Boolean).join(' · ')})`);
     } else {
       // No variants
       if (producto.stock <= 0) {
         this.showToast('Sin stock');
         return;
       }
-      CartService.addItem(producto);
-      this.showToast(`Agregado: ${producto.nombre}`);
+      this.avisarAgregado(CartService.addItem(producto), producto.nombre);
     }
     
     this.closeProductModal();
@@ -630,8 +655,14 @@ const App = {
       this.showToast('Sin stock en este momento');
       return;
     }
-    CartService.addItem(producto);
-    this.showToast(`Agregado: ${producto.nombre}`);
+    this.avisarAgregado(CartService.addItem(producto), producto.nombre);
+  },
+
+  /** Mensaje después de agregar al carrito: avisa si ya no quedan más unidades para sumar */
+  avisarAgregado(resultado, nombre) {
+    if (resultado === 'max') this.showToast(`Ya tenés en el carrito todas las unidades disponibles de ${nombre}`);
+    else if (resultado === false) this.showToast('Sin stock en este momento');
+    else this.showToast(`Agregado: ${nombre}`);
   },
 
   buyViaWhatsAppFromModal() {
@@ -727,7 +758,7 @@ const App = {
       return `
         <article class="cart-item" data-id="${escHtml(item.key || item.id)}" role="listitem">
           <div class="cart-item__media">
-            <img class="cart-item__image" src="${escHtml(item.imagen)}" alt="${escHtml(item.nombre)}"
+            <img class="cart-item__image" src="${escHtml(SheetsService.fotoChica(item.imagen, 200))}" alt="${escHtml(item.nombre)}"
                  loading="lazy"
                  onerror="this.onerror=null;this.src='data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2272%22 height=%2296%22><rect width=%2272%22 height=%2296%22 fill=%22%23eedbd8%22/></svg>'">
             ${lowStock ? '<span class="cart-item__badge cart-item__badge--low">Pocas unidades</span>' : ''}
@@ -953,7 +984,7 @@ const App = {
       const precioARS = (typeof PromoEngine !== 'undefined' && PromoEngine.precioVistaARS) ? PromoEngine.precioVistaARS(p) : SheetsService.calcularPrecioARS(p.precioUSD, p);
       return `
         <button class="cart__cross-sell-item" onclick="App.quickAdd('${escJsAttr(p.id)}')" aria-label="Agregar ${escHtml(p.nombre)} - ${SheetsService.formatPrecioARS(precioARS)}">
-          <img class="cart__cross-sell-img" src="${escHtml(p.imagen)}" alt="" loading="lazy"
+          <img class="cart__cross-sell-img" src="${escHtml(SheetsService.fotoChica(p.imagen, 200))}" alt="" loading="lazy"
                onerror="this.onerror=null;this.src='data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2256%22 height=%2256%22><rect width=%2256%22 height=%2256%22 fill=%22%23eedbd8%22/></svg>'">
           <div class="cart__cross-sell-info">
             <span class="cart__cross-sell-name">${escHtml(p.nombre)}</span>
@@ -1060,7 +1091,7 @@ const App = {
         const precioARS = (typeof PromoEngine !== 'undefined' && PromoEngine.precioVistaARS) ? PromoEngine.precioVistaARS(p) : SheetsService.calcularPrecioARS(p.precioUSD);
         return `
           <button class="search__result" onclick="App.toggleSearch(); App.openProductModal('${escJsAttr(p.id)}');" aria-label="${escHtml(p.nombre)} - ${SheetsService.formatPrecioARS(precioARS)}">
-            <img class="search__result-img" src="${escHtml(p.imagen)}" alt="" loading="lazy" onerror="this.onerror=null;this.src='data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2248%22 height=%2264%22><rect width=%2248%22 height=%2264%22 fill=%22%23eedbd8%22/></svg>'">
+            <img class="search__result-img" src="${escHtml(SheetsService.fotoChica(p.imagen, 200))}" alt="" loading="lazy" onerror="this.onerror=null;this.src='data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2248%22 height=%2264%22><rect width=%2248%22 height=%2264%22 fill=%22%23eedbd8%22/></svg>'">
             <div>
               <div class="search__result-name">${escHtml(p.nombre)}</div>
               <div class="search__result-price">${SheetsService.formatPrecioARS(precioARS)}</div>
@@ -1300,7 +1331,7 @@ const App = {
           const kicker = s.querySelector('.hero__kicker'); if (kicker && h.kicker) kicker.textContent = h.kicker;
           const title = s.querySelector('.hero__title'); if (title && h.title) title.textContent = h.title;
           const desc = s.querySelector('.hero__desc'); if (desc && h.desc) desc.textContent = h.desc;
-          const cta = s.querySelector('.hero__cta'); if (cta) { if (h.cta) cta.textContent = h.cta; if (h.categoria) cta.setAttribute('onclick', `App.filtrarCategoria('${String(h.categoria).replace(/[^a-z0-9-]/gi, '')}'); scrollToProducts(); return false;`); }
+          const cta = s.querySelector('.hero__cta'); if (cta) { if (h.cta) cta.textContent = h.cta; if (h.categoria) cta.setAttribute('onclick', `App.filtrarCategoria('${String(h.categoria).replace(/[^a-z0-9:-]/gi, '')}'); scrollToProducts(); return false;`); }
           const img = s.querySelector('.hero__media img'); if (img && h.image && /^(https:|assets\/|data:image\/)/.test(h.image)) img.src = h.image;
         });
       }
@@ -1328,7 +1359,7 @@ const App = {
         const pk = document.querySelector('.promo-band__kicker'); if (pk && c.promoBand.kicker) pk.textContent = c.promoBand.kicker;
         const pt = document.querySelector('.promo-band__title'); if (pt && c.promoBand.title) pt.textContent = c.promoBand.title;
         const pd = document.querySelector('.promo-band__desc'); if (pd && c.promoBand.desc) pd.textContent = c.promoBand.desc;
-        const pc = document.querySelector('.promo-band__cta'); if (pc) { if (c.promoBand.cta) pc.textContent = c.promoBand.cta; if (c.promoBand.categoria) pc.setAttribute('onclick', `App.filtrarCategoria('${String(c.promoBand.categoria).replace(/[^a-z0-9-]/gi, '')}'); scrollToProducts(); return false;`); }
+        const pc = document.querySelector('.promo-band__cta'); if (pc) { if (c.promoBand.cta) pc.textContent = c.promoBand.cta; if (c.promoBand.categoria) pc.setAttribute('onclick', `App.filtrarCategoria('${String(c.promoBand.categoria).replace(/[^a-z0-9:-]/gi, '')}'); scrollToProducts(); return false;`); }
         const pi = document.querySelector('.promo-band__img img'); if (pi && c.promoBand.image && /^(https:|assets\/|data:image\/)/.test(c.promoBand.image)) pi.src = c.promoBand.image;
       }
       // CTA
@@ -1375,7 +1406,8 @@ const App = {
     });
     let html = '';
     grouped.forEach(({ nombre: grupo, cats: lista }) => {
-      html += `<div class="mega-menu__col"><h4 class="mega-menu__heading">${escHtml(grupo)}</h4>`;
+      const idGrupo = 'grupo:' + SheetsService.slugCategoria(grupo);
+      html += `<div class="mega-menu__col"><h4 class="mega-menu__heading"><a href="#productos" onclick="App.filtrarCategoria('${escJsAttr(idGrupo)}')">${escHtml(grupo)}</a></h4>`;
       lista.forEach(cat => {
         // Una categoría que se llama igual que su grupo ("Pijamas" en "Pijamas") se muestra como "Ver todo"
         const nombre = String(cat.nombre || '').trim();
@@ -1386,7 +1418,8 @@ const App = {
       html += `</div>`;
     });
     // Columna promo (ofertas u última)
-    const promoCat = cats.find(c => c.id === 'ofertas') || { id: 'todos', nombre: 'Ver todo' };
+    const hayOfertas = SheetsService.filtrarPorCategoria('ofertas').length > 0;
+    const promoCat = hayOfertas ? { id: 'ofertas', nombre: 'Ofertas' } : { id: 'todos', nombre: 'Ver todo' };
     html += `<div class="mega-menu__col mega-menu__col--promo"><a href="#productos" class="mega-menu__promo" onclick="App.filtrarCategoria('${escJsAttr(promoCat.id)}')"><img src="assets/conjunto-deportivo-borgona.jpg" alt=""><span class="mega-menu__promo-label">${escHtml(promoCat.id === 'todos' ? 'Ver todo' : promoCat.nombre)}</span></a></div>`;
     nav.innerHTML = html;
   },
@@ -1397,7 +1430,7 @@ const App = {
     const todas = cont?.cards || [];
     if (!todas.length) return;
     // Las tarjetas marcadas como ocultas no se muestran; la grilla se adapta a las que quedan
-    const cards = todas.filter(c => c && String(c.oculta || '') !== '1');
+    const cards = todas.filter(c => c && String(c.oculta || '') !== '1' && (String(c.title || '').trim() || c.image));
     grid.className = 'cat-showcase__grid cat-showcase__grid--n' + cards.length;
     const seccion = document.getElementById('categories');
     if (!cards.length) { grid.innerHTML = ''; if (seccion) seccion.hidden = true; return; }

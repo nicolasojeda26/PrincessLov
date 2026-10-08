@@ -49,18 +49,30 @@ const AdminImport = {
       const set = (field) => { if (map[field] === undefined) map[field] = i; };
 
       // Orden de prioridad para evitar colisiones
-      if (key === 'id' || has('codigo', 'sku', 'cod ')) set('id');
+      const compacto = key.replace(/ /g, '');
+      if (key === 'id') set('id');
+      else if (has('sku', 'codigo', 'cod ')) set('sku');
+      else if (has('galeria')) set('galeria');
+      else if (has('variante', 'talle')) set('variantes');
+      else if (has('caracteristica', 'especificacion')) set('caracteristicas');
       else if (has('imag', 'foto', 'url')) set('imagen');
       else if (has('tag', 'etiqueta')) set('tags');
+      else if (has('destacad')) set('destacado');
       else if (has('activ', 'visible')) set('activo');
+      else if (compacto.includes('descripcioncorta')) set('descripcionCorta');
       else if (has('descrip')) set('descripcion');
       else if (has('subcateg', 'subrubro', 'sub rubro')) set('subcategoria');
       else if (has('categ', 'rubro', 'grupo') || (has('tipo') && !has('precio'))) set('categoria');
       else if (has('obs', 'nota', 'coment')) set('observaciones');
+      else if (compacto.includes('stockmin')) set('stockMin');
       else if (has('cant', 'stock', 'unidad', 'uds')) set('cantidad');
       else if (has('total', 'subtotal')) set('total');
+      else if (has('oferta', 'promo', 'descuento')) set('precioOferta');
+      else if (has('margen')) set('margen');
       else if (has('costo') && !has('envio')) set('costoUnitario');
-      else if (has('usd', 'dolar', 'price') || (has('precio') && !has('costo'))) set('precioUSD');
+      else if (has('usd', 'dolar', 'u s') || compacto.includes('u$s')) set('precioUSD');
+      else if (has('ars', 'pesos', 'manual', 'venta')) set('precioARS');
+      else if (has('precio', 'price', 'valor', 'importe')) set('precio'); // moneda a deducir por los montos
       else if (has('producto', 'articulo', 'nombre', 'item', 'name')) set('producto');
     });
 
@@ -115,8 +127,15 @@ const AdminImport = {
     if (ext === 'csv') {
       const reader = new FileReader();
       reader.onload = (e) => {
-        const data = this.parseCSV(e.target.result);
-        this.showPreview(data, file.name);
+        try {
+          // Mismo lector que para Excel: respeta comillas, comas y saltos de línea dentro de las celdas.
+          // raw:true deja "16.000" como texto (si no, lo convertía en 16).
+          this.workbook = XLSX.read(String(e.target.result).replace(/^\uFEFF/, ''), { type: 'string', raw: true });
+          this.processSheet(this.workbook.SheetNames[0], file.name);
+        } catch (err) {
+          AdminApp.toast('No se pudo leer el archivo CSV', 'error');
+          console.error(err);
+        }
       };
       reader.readAsText(file);
     } else if (ext === 'xlsx' || ext === 'xls') {
@@ -205,66 +224,139 @@ const AdminImport = {
       return;
     }
 
-    // Procesar filas de datos
-    const products = [];
-    for (let i = headerRow + 1; i < rawData.length; i++) {
-      const row = rawData[i];
-      if (!row || row.length === 0) continue;
-
-      const nombre = colMap.producto !== undefined ? String(row[colMap.producto] || '').trim() : '';
-      if (!nombre || nombre === '' || /^[\s\-*$]+$/.test(nombre)) continue;
-
-      const cantidad = colMap.cantidad !== undefined ? parseInt(row[colMap.cantidad]) || 0 : 0;
-      const costoUnit = colMap.costoUnitario !== undefined ? this.parseNumber(row[colMap.costoUnitario]) : 0;
-      const total = colMap.total !== undefined ? this.parseNumber(row[colMap.total]) : 0;
-      const obs = colMap.observaciones !== undefined ? String(row[colMap.observaciones] || '') : '';
-      const precioUSD = colMap.precioUSD !== undefined ? this.parseNumber(row[colMap.precioUSD]) : 0;
-      const categoriaExcel = colMap.categoria !== undefined ? String(row[colMap.categoria] || '').trim() : '';
-      const subcategoria = colMap.subcategoria !== undefined ? String(row[colMap.subcategoria] || '').trim() : '';
-      const descripcion = colMap.descripcion !== undefined ? String(row[colMap.descripcion] || '').trim() : '';
-      const imagenRaw = colMap.imagen !== undefined ? String(row[colMap.imagen] || '').trim() : '';
-      const imagen = typeof AdminImages !== 'undefined' ? AdminImages.normalizarUrl(imagenRaw) : imagenRaw;
-      const idExcel = colMap.id !== undefined ? String(row[colMap.id] || '').trim() : '';
-      const tags = colMap.tags !== undefined ? String(row[colMap.tags] || '').trim() : '';
-      const activo = colMap.activo !== undefined ? String(row[colMap.activo] || '').trim().toUpperCase() : '';
-
-      // Calcular precio USD final: precio base + costo extra de observaciones
-      const costoExtraUSD = this.parseObservaciones(obs);
-      const precioUSDFinal = precioUSD + costoExtraUSD;
-
-      // Si no hay precio USD pero hay costo unitario en ARS, calcular
-      let precioUSDCalculado = precioUSDFinal;
-      if (precioUSDCalculado === 0 && costoUnit > 0 && AdminApp.dolarRate > 0) {
-        precioUSDCalculado = Math.round((costoUnit / AdminApp.dolarRate) * 100) / 100;
-      }
-
-      // Auto-detectar categoría si no viene en el Excel
-      const catDetect = this.detectCategoria(nombre);
-      const categoria = categoriaExcel || catDetect.cat;
-      const categoriaOriginal = categoriaExcel || catDetect.catOrig;
-
-      // Generar ID único basado en el nombre
-      const id = idExcel || this.slugify(nombre) || AdminData.generateId();
-
-      products.push({
-        id,
-        nombre,
-        categoria: categoria.toLowerCase().replace(/\s+/g, '-'),
-        categoriaOriginal,
-        subcategoria: subcategoria || '',
-        descripcion: descripcion || obs || '',
-        precioUSD: Math.round(precioUSDCalculado * 100) / 100,
-        costoUnitarioARS: costoUnit,
-        imagen: imagen || '',
-        stock: cantidad,
-        activo: activo === '' || activo === 'TRUE' || activo === 'SI' || activo === '1' || activo === 'VERDADERO' || cantidad > 0,
-        tags: tags ? tags.split(',').map(t => t.trim().toLowerCase()).filter(Boolean) : [],
-        observaciones: obs,
-        excelSheet: sheetName,
-      });
+    // ¿La columna "Precio" (sin moneda) está en pesos o en dólares? Nadie vende lencería a
+    // más de USD 300: si los montos son grandes, son pesos. (Antes 16.000 pesos entraban
+    // como USD 16.000 y el producto quedaba en $ 32 millones.)
+    const filas = rawData.slice(headerRow + 1);
+    let precioGenericoEsARS = false;
+    if (colMap.precio !== undefined) {
+      const montos = filas.map(r => this.parseNumber(r?.[colMap.precio])).filter(n => n > 0).sort((x, y) => x - y);
+      precioGenericoEsARS = montos.length > 0 && montos[Math.floor(montos.length / 2)] >= 300;
     }
 
-    this.showPreview(products, filename + ' → ' + sheetName);
+    const existentes = AdminData.getProducts();
+    const porId = new Map(existentes.map(p => [String(p.id), p]));
+    // El apóstrofo inicial es la protección anti-fórmulas del CSV exportado ('-Tela…): se quita al leer
+    const txt = (row, k) => colMap[k] !== undefined ? String(row[colMap[k]] ?? '').trim().replace(/^'(?=[=+\-@])/, '') : '';
+    const tiene = (k) => colMap[k] !== undefined;
+    const bool = (v) => /^(true|si|sí|1|verdadero|x|activo)$/i.test(String(v).trim());
+
+    // Procesar filas de datos
+    const products = [];
+    const idsUsados = new Set();
+    for (const row of filas) {
+      if (!row || row.length === 0) continue;
+
+      const nombre = txt(row, 'producto');
+      if (!nombre || /^[\s\-*$]+$/.test(nombre)) continue;
+
+      // --- A qué producto corresponde: por ID, o por nombre idéntico si es único ---
+      const idExcel = txt(row, 'id');
+      const slug = this.slugify(nombre);
+      const mismosNombres = existentes.filter(p => this.slugify(p.nombre) === slug);
+      let previo = (idExcel && porId.get(idExcel)) || porId.get(slug) || (!idExcel && mismosNombres.length === 1 ? mismosNombres[0] : null);
+      let id = previo ? String(previo.id) : (idExcel || slug || AdminData.generateId());
+      if (idsUsados.has(id)) { id = AdminData.generateId(); previo = null; } // dos filas con el mismo nombre: son productos distintos
+      idsUsados.add(id);
+
+      // Solo se cargan los datos que el archivo trae: al actualizar un producto
+      // existente NO se pisan la foto, la descripción ni los talles que ya tenía.
+      const item = { id, nombre, excelSheet: sheetName };
+
+      // --- Categoría (se busca entre las categorías de la tienda) ---
+      const categoriaExcel = txt(row, 'categoria');
+      if (categoriaExcel || !previo) {
+        let catId = '', catNombre = '';
+        if (categoriaExcel) {
+          catId = SheetsService.resolverCategoria(categoriaExcel);
+          const conf = AdminData.getEffectiveCategorias().find(c => c.id === catId);
+          catNombre = conf ? conf.nombre : categoriaExcel;
+        } else {
+          const det = this.detectCategoria(nombre);
+          const conf = AdminData.getEffectiveCategorias().find(c => c.id === det.cat);
+          catId = conf ? conf.id : SheetsService.resolverCategoria(det.catOrig);
+          catNombre = conf ? conf.nombre : det.catOrig;
+        }
+        item.categoria = catId;
+        item.categoriaOriginal = catNombre;
+      }
+      if (tiene('subcategoria')) item.subcategoria = txt(row, 'subcategoria');
+      if (tiene('sku')) item.sku = txt(row, 'sku');
+
+      // --- Precios ---
+      const obs = txt(row, 'observaciones');
+      const costoUnit = tiene('costoUnitario') ? this.parseNumber(row[colMap.costoUnitario]) : 0;
+      let precioUSD = tiene('precioUSD') ? this.parseNumber(row[colMap.precioUSD]) : 0;
+      let precioARS = tiene('precioARS') ? this.parseNumber(row[colMap.precioARS]) : 0;
+      if (tiene('precio')) {
+        const n = this.parseNumber(row[colMap.precio]);
+        if (precioGenericoEsARS) precioARS = precioARS || n; else precioUSD = precioUSD || n;
+      }
+      precioUSD += this.parseObservaciones(obs);
+      if (!precioUSD && !precioARS && costoUnit > 0 && AdminApp.dolarRate > 0) {
+        precioUSD = costoUnit / AdminApp.dolarRate; // costo en pesos → USD para calcular con margen
+      }
+      if (tiene('precioUSD') || tiene('precio') || precioUSD || !previo) item.precioUSD = Math.round(precioUSD * 100) / 100;
+      if (tiene('precioARS') || (tiene('precio') && precioGenericoEsARS)) item.precioARSManual = precioARS > 0 ? Math.round(precioARS) : null;
+      if (tiene('precioOferta')) { const o = this.parseNumber(row[colMap.precioOferta]); item.precioOferta = o > 0 ? Math.round(o) : null; }
+      if (tiene('margen')) { const m = this.parseNumber(row[colMap.margen]); item.margenPersonalizado = m > 0 ? (m > 5 ? m / 100 : m) : null; }
+      if (costoUnit) item.costoUnitarioARS = costoUnit;
+
+      // --- Textos y fotos ---
+      if (tiene('descripcion') || (obs && !previo)) item.descripcion = txt(row, 'descripcion') || (previo ? previo.descripcion || '' : obs);
+      if (tiene('descripcionCorta')) item.descripcionCorta = txt(row, 'descripcionCorta');
+      if (obs) item.observaciones = obs;
+      const normImg = (u) => (typeof AdminImages !== 'undefined' ? AdminImages.normalizarUrl(u) : u);
+      const imagen = normImg(txt(row, 'imagen'));
+      if (imagen && /^(https:\/\/|assets\/)/.test(imagen)) item.imagen = imagen;
+      else if (!previo) item.imagen = '';
+      if (tiene('galeria') && txt(row, 'galeria')) {
+        item.galeria = txt(row, 'galeria').split('|').map(u => normImg(u.trim())).filter(u => /^(https:\/\/|assets\/)/.test(u)).map(url => ({ url }));
+      }
+      if (tiene('caracteristicas') && txt(row, 'caracteristicas')) {
+        item.caracteristicas = Object.fromEntries(txt(row, 'caracteristicas').split('|').map(par => {
+          const i = par.indexOf(':'); return i > 0 ? [par.slice(0, i).trim(), par.slice(i + 1).trim()] : null;
+        }).filter(Boolean));
+      }
+      if (tiene('tags')) item.tags = txt(row, 'tags').split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
+
+      // --- Talles / colores: "Negro(#000000)/M:2 | /S:1" o simplemente "S:1, M:2" ---
+      let variantes = null;
+      if (tiene('variantes') && txt(row, 'variantes')) {
+        variantes = txt(row, 'variantes').split(/[|;,]/).map(v => v.trim()).filter(Boolean).map(v => {
+          const m = v.match(/^(.*?)(?:\((#[0-9a-fA-F]{3,8})?\))?\s*(?:\/\s*(.*?))?\s*(?::\s*(\d+))?$/);
+          if (!m) return null;
+          let color = (m[1] || '').trim(), talle = (m[3] || '').trim();
+          if (m[3] === undefined && !m[2]) { talle = color; color = ''; } // "M:2" → solo talle
+          return (color || talle) ? { color, colorHex: color ? (m[2] || '#800020') : '', talle, stock: Number(m[4]) || 0 } : null;
+        }).filter(Boolean);
+        if (variantes.length) item.variantes = variantes;
+      }
+
+      // --- Stock ---
+      const varsFinales = item.variantes || (previo && Array.isArray(previo.variantes) && previo.variantes.length ? previo.variantes : null);
+      if (item.variantes) item.stock = item.variantes.reduce((t, v) => t + v.stock, 0);
+      else if (tiene('cantidad') && !varsFinales) item.stock = Math.max(0, parseInt(this.parseNumber(row[colMap.cantidad])) || 0);
+      else if (!previo) item.stock = 0;
+      if (tiene('stockMin')) item.stockMin = parseInt(row[colMap.stockMin]) || 5;
+
+      // --- Visibilidad ---
+      if (tiene('activo') && txt(row, 'activo') !== '') item.activo = bool(txt(row, 'activo'));
+      else if (!previo) item.activo = true;
+      if (tiene('destacado') && txt(row, 'destacado') !== '') item.destacado = bool(txt(row, 'destacado'));
+
+      if (!previo) {
+        item.galeria = item.galeria || [];
+        item.variantes = item.variantes || [];
+        item.caracteristicas = item.caracteristicas || {};
+        item.tags = item.tags || [];
+      }
+      item._previo = previo ? { nombre: previo.nombre } : null; // solo para la vista previa
+      products.push(item);
+    }
+
+    this.precioGenericoEsARS = precioGenericoEsARS;
+    this.showPreview(products, filename + (this.workbook.SheetNames.length > 1 ? ' → ' + sheetName : ''));
   },
 
   parseNumber(val) {
@@ -286,58 +378,6 @@ const AdminImport = {
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '')
       .substring(0, 60);
-  },
-
-  parseCSV(text) {
-    const lines = text.trim().split('\n');
-    if (lines.length < 2) return [];
-    const headers = this.parseCSVLine(lines[0]);
-    const colMap = this.detectColumns(headers);
-    const data = [];
-
-    for (let i = 1; i < lines.length; i++) {
-      if (!lines[i].trim()) continue;
-      const values = this.parseCSVLine(lines[i]);
-      const nombre = colMap.producto !== undefined ? (values[colMap.producto] || '').trim() : '';
-      if (!nombre) continue;
-
-      const cantidad = colMap.cantidad !== undefined ? parseInt(values[colMap.cantidad]) || 0 : 0;
-      const precioUSD = colMap.precioUSD !== undefined ? this.parseNumber(values[colMap.precioUSD]) : 0;
-      const obs = colMap.observaciones !== undefined ? (values[colMap.observaciones] || '').trim() : '';
-      const costoExtraUSD = this.parseObservaciones(obs);
-
-      const catDetect = this.detectCategoria(nombre);
-
-      data.push({
-        id: this.slugify(nombre) || AdminData.generateId(),
-        nombre,
-        categoria: catDetect.cat,
-        categoriaOriginal: catDetect.catOrig,
-        subcategoria: '',
-        descripcion: obs,
-        precioUSD: Math.round((precioUSD + costoExtraUSD) * 100) / 100,
-        imagen: '',
-        stock: cantidad,
-        activo: cantidad > 0,
-        tags: [],
-        observaciones: obs,
-      });
-    }
-    return data;
-  },
-
-  parseCSVLine(line) {
-    const result = [];
-    let current = '';
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i];
-      if (char === '"') { inQuotes = !inQuotes; }
-      else if (char === ',' && !inQuotes) { result.push(current); current = ''; }
-      else { current += char; }
-    }
-    result.push(current);
-    return result;
   },
 
   // ==========================================
@@ -368,38 +408,41 @@ const AdminImport = {
     stats.innerHTML = `
       <span class="badge badge-active">${newCount} nuevos</span>
       <span class="badge" style="background:#F59E0B;color:white;">${updateCount} a actualizar</span>
-      <span style="font-size:0.85rem; color:var(--texto-secundario);">${data.length} productos en "${filename}"</span>
+      <span style="font-size:0.85rem; color:var(--texto-secundario);">${data.length} productos en "${escHtml(filename)}"</span>
+      ${this.precioGenericoEsARS ? '<span style="font-size:0.85rem; color:var(--texto-secundario);">· La columna de precio se tomó como <strong>pesos</strong></span>' : ''}
+      ${data.some(p => !existingIds.has(p.id) && !p.imagen) ? '<span style="font-size:0.85rem; color:#b45309;">· Los productos nuevos sin foto se ven con un recuadro vacío: cargales la foto después de importar</span>' : ''}
     `;
 
     head.innerHTML = `
       <tr>
         <th>Producto</th>
         <th>Categoría</th>
-        <th>Precio USD</th>
-        <th>Precio ARS (~)</th>
+        <th>Precio en la tienda</th>
         <th>Stock</th>
-        <th>Observaciones</th>
-        <th>Estado</th>
+        <th>Foto</th>
+        <th>Qué pasa</th>
       </tr>
     `;
 
+    const porId = new Map(existing.map(p => [p.id, p]));
     body.innerHTML = data.slice(0, 100).map(p => {
-      const precioARS = AdminApp.dolarRate ? Math.round(p.precioUSD * AdminApp.dolarRate * (CONFIG?.cotizacion?.margenGanancia || 1.3)) : 0;
+      const final = { ...(porId.get(p.id) || {}), ...p };
+      const precio = AdminData.precioVentaARS(final);
+      const esNuevo = !porId.has(p.id);
       return `
       <tr>
         <td><strong>${escHtml(p.nombre)}</strong></td>
-        <td>${escHtml(p.categoriaOriginal || p.categoria)}</td>
-        <td>${AdminData.formatUSD(p.precioUSD)}</td>
-        <td>${AdminData.formatARS(precioARS)}</td>
-        <td>${Number(p.stock) || 0}</td>
-        <td style="font-size:0.8rem; color:var(--texto-secundario);">${escHtml(p.observaciones || '-')}</td>
-        <td><span class="badge ${p.activo ? 'badge-active' : 'badge-inactive'}">${p.activo ? 'Activo' : 'Inactivo'}</span></td>
+        <td>${escHtml(final.categoriaOriginal || final.categoria || '-')}</td>
+        <td>${precio > 0 ? AdminData.formatARS(precio) : '<span style="color:#b91c1c;">Sin precio</span>'}${Number(final.precioUSD) > 0 && !final.precioARSManual ? ` <small style="color:var(--texto-secundario);">(${AdminData.formatUSD(final.precioUSD)})</small>` : ''}</td>
+        <td>${Number(final.stock) || 0}${(final.variantes || []).length ? ` <small style="color:var(--texto-secundario);">(${final.variantes.length} talles/colores)</small>` : ''}</td>
+        <td>${final.imagen ? '✓' : '<span style="color:#b45309;">Sin foto</span>'}</td>
+        <td><span class="badge ${esNuevo ? 'badge-active' : ''}" ${esNuevo ? '' : 'style="background:#F59E0B;color:white;"'}>${esNuevo ? 'Nuevo' : 'Se actualiza'}</span></td>
       </tr>
     `;
     }).join('');
 
     if (data.length > 100) {
-      body.innerHTML += `<tr><td colspan="7" style="text-align:center; color:var(--texto-secundario); padding:1rem;">... y ${data.length - 100} productos más</td></tr>`;
+      body.innerHTML += `<tr><td colspan="6" style="text-align:center; color:var(--texto-secundario); padding:1rem;">... y ${data.length - 100} productos más</td></tr>`;
     }
 
     section.style.display = 'block';
@@ -413,6 +456,7 @@ const AdminImport = {
   confirmImport() {
     if (!this.pendingData) return;
 
+    this.pendingData.forEach(p => { delete p._previo; });
     const result = AdminData.importProducts(this.pendingData);
     AdminApp.toast(`Importación completa: ${result.added} nuevos, ${result.updated} actualizados, ${result.total} total`);
 
@@ -444,17 +488,24 @@ const AdminImport = {
       return;
     }
 
+    // Mismas columnas que el CSV: el archivo se puede editar y volver a importar sin perder datos
     const data = products.map(p => ({
       ID: p.id,
       Nombre: p.nombre,
       Categoria: p.categoriaOriginal || p.categoria,
       Subcategoria: p.subcategoria || '',
+      SKU: p.sku || '',
       Descripcion: p.descripcion || '',
-      PrecioUSD: p.precioUSD,
+      PrecioUSD: Number(p.precioUSD) || 0,
+      PrecioARSManual: p.precioARSManual || '',
+      PrecioOferta: p.precioOferta || '',
+      Stock: Number(p.stock) || 0,
+      Variantes: (p.variantes || []).map(v => `${v.color || ''}${v.color ? `(${v.colorHex || ''})` : ''}/${v.talle || ''}:${Number(v.stock) || 0}`).join(' | '),
       Imagen: p.imagen || '',
-      Stock: p.stock,
-      Activo: p.activo ? 'TRUE' : 'FALSE',
+      Galeria: (p.galeria || []).map(g => g.url).join(' | '),
       Tags: (p.tags || []).join(', '),
+      Activo: p.activo ? 'TRUE' : 'FALSE',
+      Destacado: p.destacado ? 'TRUE' : 'FALSE',
     }));
 
     const ws = XLSX.utils.json_to_sheet(data);

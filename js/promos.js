@@ -197,6 +197,11 @@ const PromoEngine = {
     let base = (typeof SheetsService !== 'undefined' && SheetsService.calcularPrecioARS)
       ? SheetsService.calcularPrecioARS(usd, producto)
       : Math.round(usd * 1200 * 1.3);
+    // Productos con precio fijo en pesos: el flash sale se descuenta de ese precio
+    // (antes solo descontaba del precio en dólares y no les hacía nada).
+    const manual = Number(producto?.precioARSManual) || 0;
+    const flash = manual > 0 ? this.flashDeProducto(producto) : null;
+    if (flash) base = Math.round(manual * (1 - flash.descuento / 100));
     if (producto && producto.precioOferta && Number(producto.precioOferta) > 0 && Number(producto.precioOferta) < base) {
       return Number(producto.precioOferta);
     }

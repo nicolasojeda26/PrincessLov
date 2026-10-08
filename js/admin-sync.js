@@ -235,7 +235,9 @@ const AdminSync = {
       this.ultimaSync = new Date();
       this.pintarEstado();
       this.avisoLocal();
-      if (!(AdminApp.currentSection === 'home' && typeof AdminHome !== 'undefined' && AdminHome.dirty)) AdminApp.renderSection(AdminApp.currentSection);
+      const editando = (AdminApp.currentSection === 'home' && typeof AdminHome !== 'undefined' && AdminHome.dirty)
+        || (AdminApp.currentSection === 'promos' && typeof AdminPromos !== 'undefined' && AdminPromos.dirty);
+      if (!editando) AdminApp.renderSection(AdminApp.currentSection);
       AdminApp.actualizarBadges?.();
       this.renderArrepentimientos();
       const subidos = soloLocales.length + pedLocales.length + gasLocales.length;

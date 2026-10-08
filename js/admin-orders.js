@@ -85,7 +85,7 @@ const AdminOrders = {
       const estado = ADMIN_CONFIG.estadosPedido.find(ep => ep.id === o.estado) || ADMIN_CONFIG.estadosPedido[0];
       const items = (o.items || []).map(i => {
         const prod = AdminData.getProduct(i.productoId);
-        return `${this.esc(prod?.nombre || i.nombre || i.productoId)}${i.variante ? ` (${this.esc(i.variante)})` : ''} x${Number(i.cantidad) || 0}`;
+        return `${this.esc(prod?.nombre || i.nombre || i.productoId)}${AdminData.varianteLegible(i.variante) ? ` (${this.esc(AdminData.varianteLegible(i.variante))})` : ''} x${Number(i.cantidad) || 0}`;
       }).join(', ');
       const tel = String(o.telefono || '').replace(/\D/g, '');
       const telWa = tel ? (tel.startsWith('54') ? tel : '549' + tel.replace(/^0/, '')) : '';
@@ -180,8 +180,9 @@ const AdminOrders = {
         <select class="order-item-product" required onchange="AdminOrders.onProductChange(this)">
           <option value="">Producto...</option>
           ${products.map(p => {
-            const precioARS = AdminApp.dolarRate ? Math.round(p.precioUSD * AdminApp.dolarRate * (CONFIG?.cotizacion?.margenGanancia || 1.3)) : 0;
-            return `<option value="${escHtml(p.id)}" data-price="${precioARS}" ${item && String(item.productoId) === String(p.id) ? 'selected' : ''}>${escHtml(p.nombre)} (${AdminData.formatUSD(p.precioUSD)} / ~${AdminData.formatARS(precioARS)})</option>`;
+            // Precio real de venta en pesos (antes se calculaba desde el USD y daba $0 en productos con precio fijo)
+            const precioARS = AdminData.precioVentaARS(p);
+            return `<option value="${escHtml(p.id)}" data-price="${precioARS}" ${item && String(item.productoId) === String(p.id) ? 'selected' : ''}>${escHtml(p.nombre)} — ${AdminData.formatARS(precioARS)}${p.stock > 0 ? '' : ' (sin stock)'}</option>`;
           }).join('')}
         </select>
       </div>
@@ -204,9 +205,13 @@ const AdminOrders = {
     const row = select.closest('.form-grid');
     if (row) {
       const priceInput = row.querySelector('.order-item-precio');
-      if (priceInput && !priceInput.value) {
+      // Al elegir otro producto se actualiza el precio sugerido (se puede editar a mano)
+      if (priceInput && (!priceInput.value || priceInput.dataset.auto === priceInput.value)) {
         priceInput.value = price;
+        priceInput.dataset.auto = price;
       }
+      const varInput = row.querySelector('.order-item-variante'); if (varInput) varInput.value = '';
+      const nomInput = row.querySelector('.order-item-nombre'); if (nomInput) nomInput.value = '';
     }
   },
 
@@ -221,7 +226,7 @@ const AdminOrders = {
       const precio = parseFloat(row.querySelector('.order-item-precio').value) || 0;
       const variante = row.querySelector('.order-item-variante')?.value || '';
       const sel = row.querySelector('.order-item-product');
-      const nombre = row.querySelector('.order-item-nombre')?.value || sel?.options[sel.selectedIndex]?.text?.split(' (')[0] || '';
+      const nombre = row.querySelector('.order-item-nombre')?.value || AdminData.getProduct(prodId)?.nombre || sel?.options[sel.selectedIndex]?.text?.split(' — ')[0] || '';
       if (prodId && cant > 0) {
         items.push({ productoId: prodId, nombre, variante, cantidad: cant, precioUnitario: precio });
       }

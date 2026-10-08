@@ -44,12 +44,25 @@ const AdminPromos = {
   render(reload = true) {
     const root = document.getElementById('promos-root');
     if (!root) return;
-    if (reload || !this.data) {
+    // Con cambios sin guardar no se recarga desde lo publicado (se perdería lo que estabas editando)
+    if ((reload && !this.dirty) || !this.data) {
       this.data = (typeof AdminData.getEffectivePromos === 'function')
         ? AdminData.getEffectivePromos() : (CONFIG.promos || {});
     }
     root.innerHTML = this.layout();
     this.bind(root);
+    this.pintarDirty();
+  },
+
+  /** Las promos NO se guardan solas: esta barra recuerda tocar "Guardar" */
+  marcarDirty() { this.dirty = true; this.pintarDirty(); },
+  pintarDirty() {
+    const bar = document.getElementById('promos-save-bar');
+    if (bar) bar.hidden = !this.dirty;
+  },
+  descartar() {
+    this.dirty = false;
+    this.render(true);
   },
 
   layout() {
@@ -64,6 +77,13 @@ const AdminPromos = {
       <div class="promos-persist">
         <button type="button" class="btn btn-primary" data-action="save">💾 Guardar promociones</button>
         <button type="button" class="btn btn-secondary" data-action="reset">↺ Restaurar valores de fábrica</button>
+      </div>
+      <div class="save-bar" id="promos-save-bar" hidden>
+        <span>✏️ Tenés cambios sin guardar en las promos</span>
+        <div>
+          <button type="button" class="btn btn-secondary" onclick="AdminPromos.descartar()">Descartar</button>
+          <button type="button" class="btn btn-primary" onclick="AdminPromos.save()">💾 Guardar y publicar</button>
+        </div>
       </div>
     `;
   },
@@ -340,6 +360,7 @@ const AdminPromos = {
   },
 
   afterChange() {
+    this.marcarDirty();
     // Actualiza contadores sin perder el estado
     Object.entries({ cupones: 'cupones', flashSales: 'flashSales', combos: 'combos', dosPorUno: 'dosPorUno', preventas: 'preventas' }).forEach(([kind]) => {
       const card = document.querySelector(`.promos-card[data-kind-index="${kind}"]`);
@@ -351,6 +372,14 @@ const AdminPromos = {
   },
 
   save() {
+    // Cupones: el código va en mayúsculas y sin espacios; dos iguales o uno vacío no sirven
+    const cupones = this.data.cupones || [];
+    cupones.forEach(c => { c.codigo = String(c.codigo || '').trim().toUpperCase().replace(/\s+/g, ''); });
+    if (cupones.some(c => !c.codigo)) { AdminApp.toast?.('Hay un cupón sin código: escribilo o borralo con 🗑', 'error'); return; }
+    const repetido = cupones.find((c, i) => cupones.findIndex(x => x.codigo === c.codigo) !== i);
+    if (repetido) { AdminApp.toast?.(`El código ${repetido.codigo} está repetido`, 'error'); return; }
+    this.dirty = false;
+    this.pintarDirty();
     if (typeof AdminData.savePromos === 'function') AdminData.savePromos(this.data);
     else localStorage.setItem('pl_admin_promos', JSON.stringify(this.data));
 
@@ -365,6 +394,7 @@ const AdminPromos = {
 
   reset() {
     if (typeof AdminData.resetPromos === 'function') AdminData.resetPromos();
+    this.dirty = false;
     this.render();
     AdminApp.toast?.('Restaurados los valores por defecto');
   },
