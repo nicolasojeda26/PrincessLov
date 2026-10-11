@@ -3492,3 +3492,6 @@ details.tech-box > summary { cursor: pointer; font-weight: 700; color: var(--bor
 
 /* Deja lugar para la barra fija "Tenés cambios sin guardar" (no tapa los botones del final) */
 #promos-root { padding-bottom: 5.5rem; }
+
+/* Stock repartido automáticamente al separar talles: resaltado para revisar */
+.variant-stock.input-revisar { border-color: #F59E0B; background: #FFFBEB; }

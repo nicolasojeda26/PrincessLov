@@ -322,7 +322,7 @@ const AdminProducts = {
       </div>
       <div class="form-group">
         <label>Talle <small>(opcional)</small></label>
-        <input type="text" class="variant-talle" placeholder="Ej: S, M, L, XL / Único" value="${this.esc(variant.talle || '')}">
+        <input type="text" class="variant-talle" placeholder="Un talle por fila. Ej: M" value="${this.esc(variant.talle || '')}" onblur="AdminProducts.separarFila(this.closest('.variant-row'))">
       </div>
       <div class="form-group">
         <label>Stock</label>
@@ -331,6 +331,43 @@ const AdminProducts = {
       <button type="button" class="variant-remove" onclick="this.closest('.variant-row').remove()" title="Eliminar variante">✕</button>
     `;
     container.appendChild(row);
+    return row;
+  },
+
+  /**
+   * "S, M" · "M y L" · "XL - 2XL" → ["S","M"] …  (un talle tipo "S/M" queda como uno solo)
+   * Si se escribían varios talles en una misma fila, la tienda mostraba un único
+   * botón "S,M" y la clienta no podía elegir el talle.
+   */
+  separarTalles(texto) {
+    return String(texto || '').split(/\s*[,;]\s*|\s+y\s+|\s+-\s+/i).map(t => t.trim()).filter(Boolean);
+  },
+
+  /** Convierte una fila con varios talles en una fila por talle. Devuelve true si separó. */
+  separarFila(row) {
+    if (!row) return false;
+    const inp = row.querySelector('.variant-talle');
+    const talles = this.separarTalles(inp?.value);
+    if (talles.length < 2) return false;
+    const color = row.querySelector('.variant-color-name')?.value?.trim() || '';
+    const colorHex = row.querySelector('.variant-color-input')?.value || '';
+    const total = Math.max(0, parseInt(row.querySelector('.variant-stock')?.value) || 0);
+    // Reparte el stock: si coincide con la cantidad de talles, 1 de cada uno
+    const base = Math.floor(total / talles.length);
+    let resto = total - base * talles.length;
+    let ref = row;
+    const nuevas = talles.map(talle => {
+      const nueva = this.addVariantRow({ color, colorHex, talle, stock: base + (resto-- > 0 ? 1 : 0) });
+      ref.after(nueva); ref = nueva;
+      return nueva;
+    });
+    row.remove();
+    nuevas.forEach(n => n.querySelector('.variant-stock').classList.add('input-revisar'));
+    const exacto = total === talles.length;
+    AdminApp.toast(exacto
+      ? `Separé ${talles.join(', ')} en ${talles.length} talles (1 unidad de cada uno). Si no es así, corregí el stock.`
+      : `Separé ${talles.join(', ')} en ${talles.length} talles. Revisá cuántas unidades hay de cada uno.`, exacto ? 'success' : 'warning');
+    return !exacto;
   },
 
   // ========== GALERÍA ==========
@@ -421,6 +458,11 @@ const AdminProducts = {
     const catConfig = CONFIG.categorias.find(c => c.id === catId);
 
     const irATab = (tab) => document.querySelector(`#product-modal .form-tab[data-tab="${tab}"]`)?.click();
+    // Una fila por talle: si quedó alguna con "S, M", se separa antes de guardar
+    let revisar = false;
+    [...document.querySelectorAll('#variantes-container .variant-row')].forEach(r => { if (this.separarFila(r)) revisar = true; });
+    if (revisar) { irATab('variantes'); return; } // el stock no se pudo repartir solo: que lo revise y guarde de nuevo
+
     // Variantes: alcanza con talle O color (antes exigía los dos y,
     // si faltaba uno, la fila se descartaba sin avisar)
     const variantes = [];
