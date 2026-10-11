@@ -39,7 +39,6 @@ Son obligatorios para identificar al vendedor (Ley 24.240). Esto no reemplaza el
 - Activá la verificación en 2 pasos en tu cuenta de Google, Vercel, GitHub e Instagram.
 - Nunca pongas claves en `data/config.js`: ese archivo lo descarga cualquier visitante.
 - Si alguna vez sospechás que se filtró el token: cambiá `ADMIN_TOKEN` en el Apps Script y cargá el nuevo en el admin.
-- Respondé las solicitudes del **Botón de arrepentimiento** dentro de las 24 h (hoja *Arrepentimiento*; el admin avisa en Pedidos).
 
 ## Qué quedó protegido
 

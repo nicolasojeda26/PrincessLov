@@ -6,7 +6,7 @@
 
    Ahora, con la planilla conectada y el token de administración cargado:
    - Al abrir el panel se traen productos, pedidos, gastos, leads del
-     Club Prince, solicitudes de arrepentimiento y la config publicada.
+     Club Prince y la config publicada.
    - Cada alta/edición/baja se publica en la planilla al instante, y la
      tienda la lee de ahí para todas las clientas.
    - Lo que existía solo en este navegador se sube en la primera sincronización.
@@ -168,9 +168,9 @@ const AdminSync = {
     }
     this.badge('local', '⏳ Sincronizando…');
     try {
-      const [prods, pedidos, gastos, leads, arr, config] = await Promise.all([
+      const [prods, pedidos, gastos, leads, config] = await Promise.all([
         this.leer('productos'), this.leer('pedidos'), this.leer('gastos'),
-        this.leer('clubprince'), this.leer('arrepentimiento'), this.leer('config'),
+        this.leer('clubprince'), this.leer('config'),
       ]);
 
       // Productos: la planilla manda; lo que solo existía acá se sube
@@ -199,13 +199,12 @@ const AdminSync = {
       for (const g of gasLocales) await this.post('create_expense', { expense: g });
       AdminData.saveExpenses([...gasRemotos, ...gasLocales]);
 
-      // Leads del Club Prince y solicitudes de arrepentimiento (solo lectura)
+      // Leads del Club Prince (solo lectura)
       try {
         localStorage.setItem('pl_clubprince_leads', JSON.stringify(leads.map(l => ({
           id: String(l.ID), fecha: l.Fecha, nombre: String(l.Nombre || ''), telefono: String(l.Telefono || ''),
           ciudad: String(l.Ciudad || ''), plan: String(l.Plan || ''), estado: String(l.Estado || ''),
         }))));
-        localStorage.setItem('pl_admin_arrepentimientos', JSON.stringify(arr));
       } catch {}
 
       // Config publicada: el admin edita lo mismo que ven las clientas
@@ -239,7 +238,6 @@ const AdminSync = {
         || (AdminApp.currentSection === 'promos' && typeof AdminPromos !== 'undefined' && AdminPromos.dirty);
       if (!editando) AdminApp.renderSection(AdminApp.currentSection);
       AdminApp.actualizarBadges?.();
-      this.renderArrepentimientos();
       const subidos = soloLocales.length + pedLocales.length + gasLocales.length;
       if (manual || subidos) AdminApp.toast(`✅ Sincronizado con Google Sheets${subidos ? ` (${subidos} registros locales subidos)` : ''}`);
     } catch (err) {
@@ -248,24 +246,6 @@ const AdminSync = {
       const msg = /autorizado/i.test(err.message) ? 'el token no coincide con ADMIN_TOKEN del Apps Script' : err.message;
       AdminApp.toast('❌ No se pudo sincronizar: ' + msg, 'error');
     }
-  },
-
-  /** Solicitudes del botón de arrepentimiento pendientes (en Pedidos) */
-  renderArrepentimientos() {
-    const sec = document.getElementById('section-orders');
-    if (!sec) return;
-    sec.querySelector('#arrepentimientos-box')?.remove();
-    let lista = [];
-    try { lista = JSON.parse(localStorage.getItem('pl_admin_arrepentimientos') || '[]'); } catch {}
-    const nuevas = lista.filter(a => String(a.Estado || 'nuevo') === 'nuevo');
-    if (!nuevas.length) return;
-    const esc = (s) => escHtml(s);
-    const box = document.createElement('div');
-    box.id = 'arrepentimientos-box';
-    box.className = 'local-warning';
-    box.style.borderColor = '#EF4444';
-    box.innerHTML = `<strong>↩️ ${nuevas.length} solicitud(es) de arrepentimiento sin responder.</strong> Por ley tenés que responder dentro de las 24 h (hoja "Arrepentimiento" de la planilla).<ul style="margin:0.5rem 0 0 1.2rem;">${nuevas.slice(0, 5).map(a => `<li><code>${esc(a.ID)}</code> · ${esc(a.Nombre)} · ${esc(a.Telefono)} · ${esc(a.Productos)}</li>`).join('')}</ul>`;
-    sec.prepend(box);
   },
 
   /* ---------- Enganches sobre AdminData ---------- */
@@ -319,7 +299,6 @@ const AdminSync = {
     this.engancharAdminData();
     this.pintarEstado();
     this.avisoLocal();
-    this.renderArrepentimientos();
     if (this.habilitado()) this.sincronizar(false);
   },
 };

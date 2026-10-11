@@ -1305,8 +1305,6 @@ button.cart__shipping-option:hover { border-color: var(--primary); }
 .cart__shipping-option--selected { border-color: var(--primary) !important; background: var(--pink-100) !important; box-shadow: inset 3px 0 0 var(--primary); }
 
 /* Footer legales */
-.footer__arrepentimiento { display: inline-block; margin-top: var(--sp-4); padding: 10px 16px; border: 1.5px solid currentColor; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: inherit; text-decoration: none; }
-.footer__arrepentimiento:hover { background: var(--primary); color: #fff; border-color: var(--primary); }
 .newsletter__legal { font-size: 12px; opacity: 0.75; margin-top: var(--sp-2); }
 .newsletter__legal a, .club-prince__form-hint a { text-decoration: underline; color: inherit; }
 .newsletter__form { position: relative; }

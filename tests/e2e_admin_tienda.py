@@ -266,10 +266,7 @@ with sync_playwright() as p:
             check("tienda: lead del club guardado en la planilla", any(l["Nombre"] == "Lead QA" for l in DB["ClubPrince_Leads"]))
             check("tienda: newsletter visible con planilla", st.is_visible("#newsletter"))
             st.screenshot(path="/tmp/e2e-store.png", full_page=False)
-            st.goto(BASE + "/arrepentimiento.html"); st.wait_for_timeout(800)
-            st.fill("#arr-nombre", "Arre QA"); st.fill("#arr-telefono", "3757444555"); st.fill("#arr-fecha", "2026-09-20"); st.fill("#arr-productos", "Top")
-            st.click("#arr-btn"); st.wait_for_timeout(600)
-            check("arrepentimiento registrado en la planilla", any(r["Nombre"] == "Arre QA" for r in DB["Arrepentimiento"]))
+            check("tienda: sin botón de arrepentimiento", st.locator("a[href*=arrepentimiento]").count() == 0)
         cctx.close()
 
     # ======================= ADMIN recibe y confirma =======================
@@ -277,7 +274,6 @@ with sync_playwright() as p:
     ad.evaluate("AdminApp.navigate('orders')"); ad.wait_for_timeout(300)
     check("admin: ve el pedido de la web", "Clienta QA" in (ad.text_content("#orders-list") or ""))
     check("admin: contador de pedidos pendientes", (ad.text_content("#nav-badge-orders") or "").strip() == "1")
-    check("admin: aviso de arrepentimiento", ad.is_visible("#arrepentimientos-box"))
     ped = next(r for r in DB["Pedidos"] if r["Cliente"] == "Clienta QA")
     ad.evaluate(f"AdminData.updateOrder('{ped['ID']}', {{estado:'confirmado'}})"); ad.wait_for_timeout(800)
     prod = next(r for r in DB["Productos"] if r["Nombre"] == "Top Prueba QA")

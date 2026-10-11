@@ -1,4 +1,4 @@
-/* Páginas legales (términos, privacidad, arrepentimiento) */
+/* Páginas legales (términos y privacidad) */
 :root { --burgundy: #800020; --texto: #3d2b24; --muted: #7a6560; --borde: #f0e8e4; --fondo: #FDF8F6; }
 * { box-sizing: border-box; }
 body { margin: 0; font-family: 'Montserrat', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: var(--texto); background: var(--fondo); line-height: 1.7; font-size: 15px; }
