@@ -306,18 +306,35 @@ const AdminProducts = {
   },
 
   // ========== VARIANTES ==========
-  addVariantRow(variant = {}) {
+  addVariantRow(variant) {
     this.variantRowId++;
     const container = document.getElementById('variantes-container');
+    // "+ Agregar variante": la fila nueva arranca con el color de la anterior
+    // (casi siempre es el mismo color en otro talle)
+    if (!variant) {
+      const prev = container.querySelector('.variant-row:last-child');
+      const pc = prev ? this.leerColorFila(prev) : { color: '', colorHex: '' };
+      variant = { color: pc.color, colorHex: pc.colorHex };
+    }
+    if (!document.getElementById('colores-sugeridos') && typeof Colores !== 'undefined') {
+      const dl = document.createElement('datalist');
+      dl.id = 'colores-sugeridos';
+      dl.innerHTML = Colores.LISTA.map(([n]) => `<option value="${this.esc(n)}">`).join('');
+      document.body.appendChild(dl);
+    }
+    const hexGuardado = /^#[0-9a-f]{6}$/i.test(variant.colorHex || '') ? variant.colorHex
+      : (variant.color && typeof Colores !== 'undefined' ? Colores.hexDeNombre(variant.color) : '');
     const row = document.createElement('div');
     row.className = 'variant-row';
     row.dataset.id = this.variantRowId;
+    row.dataset.conColor = hexGuardado || variant.color ? '1' : '';
     row.innerHTML = `
       <div class="form-group">
         <label>Color <small>(opcional)</small></label>
-        <div style="display:flex; gap:0.5rem; align-items:end;">
-          <input type="text" class="variant-color-name" placeholder="Nombre (ej: Borgoña)" value="${this.esc(variant.color || '')}" style="flex:1;">
-          <input type="color" class="variant-color-input" value="${/^#[0-9a-f]{6}$/i.test(variant.colorHex || '') ? variant.colorHex : '#800020'}">
+        <div class="variant-color-box">
+          <input type="color" class="variant-color-input" value="${hexGuardado || '#ffffff'}" title="Elegí el color" aria-label="Elegir color">
+          <input type="text" class="variant-color-name" list="colores-sugeridos" placeholder="Sin color (ej: Negro)" value="${this.esc(variant.color || '')}" autocomplete="off">
+          <button type="button" class="variant-color-clear" title="Quitar color" aria-label="Quitar color">✕</button>
         </div>
       </div>
       <div class="form-group">
@@ -331,7 +348,47 @@ const AdminProducts = {
       <button type="button" class="variant-remove" onclick="this.closest('.variant-row').remove()" title="Eliminar variante">✕</button>
     `;
     container.appendChild(row);
+    this.prepararColorFila(row);
     return row;
+  },
+
+  /**
+   * Antes el color solo se guardaba si además se escribía el nombre: si elegían
+   * el color en el cuadradito, se perdía y al reabrir aparecía el bordó de fábrica.
+   * Ahora: elegir en el cuadradito pone el nombre solo; escribir el nombre pinta el cuadradito.
+   */
+  prepararColorFila(row) {
+    const picker = row.querySelector('.variant-color-input');
+    const nombre = row.querySelector('.variant-color-name');
+    const pintar = () => row.classList.toggle('variant-row--sin-color', !row.dataset.conColor);
+    picker.addEventListener('input', () => {
+      row.dataset.conColor = '1';
+      if (!nombre.value.trim() || nombre.dataset.auto === '1') {
+        nombre.value = typeof Colores !== 'undefined' ? Colores.nombreDeHex(picker.value) : '';
+        nombre.dataset.auto = '1';
+      }
+      pintar();
+    });
+    nombre.addEventListener('input', () => {
+      nombre.dataset.auto = '';
+      const hex = typeof Colores !== 'undefined' ? Colores.hexDeNombre(nombre.value) : '';
+      if (hex) picker.value = hex;
+      row.dataset.conColor = nombre.value.trim() ? '1' : '';
+      pintar();
+    });
+    row.querySelector('.variant-color-clear').addEventListener('click', () => {
+      nombre.value = ''; nombre.dataset.auto = ''; picker.value = '#ffffff'; row.dataset.conColor = ''; pintar();
+    });
+    pintar();
+  },
+
+  /** { color, colorHex } de una fila ('' si no tiene color) */
+  leerColorFila(row) {
+    if (!row.dataset.conColor) return { color: '', colorHex: '' };
+    const hex = row.querySelector('.variant-color-input')?.value || '';
+    let color = row.querySelector('.variant-color-name')?.value?.trim() || '';
+    if (!color && typeof Colores !== 'undefined') color = Colores.nombreDeHex(hex);
+    return { color, colorHex: color ? hex : '' };
   },
 
   /**
@@ -349,9 +406,8 @@ const AdminProducts = {
     const inp = row.querySelector('.variant-talle');
     const talles = this.separarTalles(inp?.value);
     if (talles.length < 2) return false;
-    const color = row.querySelector('.variant-color-name')?.value?.trim() || '';
-    const colorHex = row.querySelector('.variant-color-input')?.value || '';
-    const total = Math.max(0, parseInt(row.querySelector('.variant-stock')?.value) || 0);
+    const { color, colorHex } = this.leerColorFila(row);
+    const total =Math.max(0, parseInt(row.querySelector('.variant-stock')?.value) || 0);
     // Reparte el stock: si coincide con la cantidad de talles, 1 de cada uno
     const base = Math.floor(total / talles.length);
     let resto = total - base * talles.length;
@@ -468,10 +524,22 @@ const AdminProducts = {
     const variantes = [];
     const vistas = new Set();
     let errorVariante = '';
-    document.querySelectorAll('#variantes-container .variant-row').forEach((row, i) => {
-      const color = row.querySelector('.variant-color-name')?.value?.trim() || '';
-      const colorHex = row.querySelector('.variant-color-input')?.value || '';
-      const talle = row.querySelector('.variant-talle')?.value?.trim() || '';
+    // Un solo color en el producto pero puesto solo en alguna fila → va para todas
+    const filas = [...document.querySelectorAll('#variantes-container .variant-row')];
+    const coloresFilas = filas.map(r => this.leerColorFila(r));
+    const distintos = [...new Map(coloresFilas.filter(c => c.color).map(c => [c.color.toLowerCase(), c])).values()];
+    if (distintos.length === 1 && coloresFilas.some(c => !c.color)) {
+      filas.forEach((r, i) => {
+        if (coloresFilas[i].color) return;
+        r.querySelector('.variant-color-name').value = distintos[0].color;
+        r.querySelector('.variant-color-input').value = distintos[0].colorHex || '#ffffff';
+        r.dataset.conColor = '1';
+        r.classList.remove('variant-row--sin-color');
+      });
+    }
+    filas.forEach((row, i) => {
+      const { color, colorHex } = this.leerColorFila(row);
+      const talle =row.querySelector('.variant-talle')?.value?.trim() || '';
       const stock = Math.max(0, parseInt(row.querySelector('.variant-stock')?.value) || 0);
       if (!color && !talle) {
         if (stock > 0 && !errorVariante) errorVariante = `En la variante ${i + 1} falta el talle o el color`;
@@ -480,7 +548,7 @@ const AdminProducts = {
       const clave = (color + '|' + talle).toLowerCase();
       if (vistas.has(clave) && !errorVariante) errorVariante = `La variante "${[talle, color].filter(Boolean).join(' · ')}" está repetida`;
       vistas.add(clave);
-      variantes.push({ color, colorHex: color ? colorHex : '', talle, stock });
+      variantes.push({ color, colorHex, talle, stock });
     });
     if (errorVariante) { irATab('variantes'); AdminApp.toast(errorVariante, 'error'); return; }
     if (variantes.length && !variantes.some(v => v.stock > 0)) {

@@ -369,6 +369,10 @@ const App = {
           <div class="product-card__info">
             <div class="product-card__cat">${escHtml(SheetsService.nombreFiltro(p.categoria) || p.categoriaOriginal)}</div>
             <h3 class="product-card__name">${escHtml(p.nombre)}</h3>
+            ${(() => {
+              const cs = [...new Map((p.variantes || []).filter(v => v.color).map(v => [v.color.trim().toLowerCase(), v])).values()];
+              return cs.length ? `<div class="product-card__colors">${cs.slice(0, 5).map(v => `<span class="product-card__color-dot" style="background:${escHtml(Colores.hexPara(v.color, v.colorHex))}"></span>`).join('')}<span>${escHtml(cs.length === 1 ? cs[0].color.trim() : cs.length + ' colores')}</span></div>` : '';
+            })()}
             <div class="product-card__prices">
               ${precioARS < basePrecio
                 ? `<span class="price price--old">${SheetsService.formatPrecioARS(basePrecio)}</span><span class="price price--current">${SheetsService.formatPrecioARS(precioARS)}</span>`
@@ -493,6 +497,20 @@ const App = {
     // Variants
     const variantsEl = document.getElementById('product-modal-variants');
     const variantsContainerEl = document.getElementById('product-modal-variants-container');
+    // Mismo modelo en otros colores: Yanela carga cada color como un producto aparte
+    // con el mismo nombre. Se muestran como circulitos para pasar de un color a otro.
+    const hermanos = this.otrosColores(producto);
+    const htmlColores = hermanos.length > 1 ? `
+          <div class="product-modal__variant-group product-modal__colores">
+            <div class="product-modal__variant-label">Color: <strong>${escHtml(this.colorDeProducto(producto)?.color || '')}</strong></div>
+            <div class="product-modal__variant-options">
+              ${hermanos.map(h => `
+                <button type="button" class="product-modal__color-swatch ${h.p.id === producto.id ? 'selected' : ''} ${h.p.stock > 0 ? '' : 'sin-stock'}"
+                        style="--swatch:${escHtml(Colores.hexPara(h.color, h.colorHex))}" title="${escHtml(h.color)}${h.p.stock > 0 ? '' : ' (sin stock)'}"
+                        aria-label="${escHtml(h.color)}" ${h.p.id === producto.id ? 'aria-current="true"' : `onclick="App.openProductModal('${escJsAttr(h.p.id)}')"`}></button>
+              `).join('')}
+            </div>
+          </div>` : '';
     if (variantsEl && variantsContainerEl && producto.variantes && producto.variantes.length > 0) {
       // Group by color
       // Agrupa por color. Si una opción no tiene color (solo talle) no se dibuja el círculo;
@@ -501,20 +519,20 @@ const App = {
       let html = '';
       colors.forEach((color, colorIdx) => {
         const variantsOfColor = producto.variantes.filter(v => (v.color || '') === color);
-        const colorHex = variantsOfColor[0]?.colorHex || '#800020';
+        const colorHex = Colores.hexPara(color, variantsOfColor[0]?.colorHex);
         const conTalles = variantsOfColor.some(v => v.talle);
         html += `
           <div class="product-modal__variant-group">
-            ${color && conTalles ? `<div class="product-modal__variant-label" style="display:flex; align-items:center; gap:0.5rem;">
-              <span style="width:16px;height:16px;border-radius:50%;background:${/^#[0-9a-f]{3,8}$/i.test(colorHex) ? colorHex : '#800020'};border:1px solid var(--border);"></span>
+            ${color && conTalles && !htmlColores ? `<div class="product-modal__variant-label" style="display:flex; align-items:center; gap:0.5rem;">
+              <span style="width:16px;height:16px;border-radius:50%;background:${escHtml(colorHex)};border:1px solid var(--border);"></span>
               ${escHtml(color)}
-            </div>` : (!color && colorIdx === 0 ? '<div class="product-modal__variant-label">Talle</div>' : '')}
+            </div>` : ((!color || htmlColores) && colorIdx === 0 && conTalles ? '<div class="product-modal__variant-label">Talle</div>' : '')}
             <div class="product-modal__variant-options">
               ${variantsOfColor.map(v => `
                 <button class="product-modal__variant-option ${v.stock <= 0 ? 'disabled' : ''}" 
                         data-color="${escHtml(color)}" data-talle="${escHtml(v.talle || '')}" data-stock="${Number(v.stock) || 0}"
                         onclick="App.selectProductVariant(this)" ${v.stock <= 0 ? 'disabled' : ''}>
-                  ${v.talle ? escHtml(v.talle) : `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px;background:${/^#[0-9a-f]{3,8}$/i.test(v.colorHex || '') ? v.colorHex : '#800020'};"></span>${escHtml(color)}`}
+                  ${v.talle ? escHtml(v.talle) : `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px;background:${escHtml(Colores.hexPara(color, v.colorHex))};border:1px solid var(--border);"></span>${escHtml(color)}`}
                   ${v.stock > 0 && v.stock <= 5 ? `<span style="font-size:0.65rem;color:#F59E0B;"> (${v.stock})</span>` : ''}
                 </button>
               `).join('')}
@@ -522,7 +540,10 @@ const App = {
           </div>
         `;
       });
-      variantsContainerEl.innerHTML = html;
+      variantsContainerEl.innerHTML = htmlColores + html;
+      variantsEl.style.display = 'block';
+    } else if (variantsEl && variantsContainerEl && htmlColores) {
+      variantsContainerEl.innerHTML = htmlColores;
       variantsEl.style.display = 'block';
     } else if (variantsEl) {
       variantsEl.style.display = 'none';
@@ -571,6 +592,34 @@ const App = {
     if (mainImg && thumbEl) mainImg.src = thumbEl.dataset.full || thumbEl.src;
     document.querySelectorAll('.product-modal__thumb').forEach(t => t.classList.remove('active'));
     thumbEl.classList.add('active');
+  },
+
+  /** El color del producto si todas sus variantes con color tienen el mismo ({color, colorHex}) */
+  colorDeProducto(producto) {
+    const cs = (producto?.variantes || []).filter(v => v.color);
+    if (!cs.length) return null;
+    const nombres = new Set(cs.map(v => v.color.trim().toLowerCase()));
+    return nombres.size === 1 ? { color: cs[0].color.trim(), colorHex: cs[0].colorHex || '' } : null;
+  },
+
+  /** Productos activos con el mismo nombre y categoría, uno por color (incluye al actual) */
+  otrosColores(producto) {
+    const propio = this.colorDeProducto(producto);
+    if (!propio) return [];
+    const clave = SheetsService.normalizarTexto(producto.nombre).replace(/\s+/g, ' ').trim();
+    const vistos = new Set();
+    const lista = [];
+    [producto, ...SheetsService.productos.filter(p => p.activo && p.id !== producto.id && p.categoria === producto.categoria
+      && SheetsService.normalizarTexto(p.nombre).replace(/\s+/g, ' ').trim() === clave)]
+      .forEach(p => {
+        const c = this.colorDeProducto(p);
+        if (!c) return;
+        const k = c.color.toLowerCase();
+        if (vistos.has(k)) return; // mismo color cargado dos veces: queda el primero
+        vistos.add(k);
+        lista.push({ p, color: c.color, colorHex: c.colorHex });
+      });
+    return lista;
   },
 
   /** "Elegí el talle" / "Elegí el color" / "Elegí color y talle" según lo que tenga el producto */

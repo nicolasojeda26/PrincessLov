@@ -328,7 +328,7 @@ const AdminImport = {
           if (!m) return null;
           let color = (m[1] || '').trim(), talle = (m[3] || '').trim();
           if (m[3] === undefined && !m[2]) { talle = color; color = ''; } // "M:2" → solo talle
-          return (color || talle) ? { color, colorHex: color ? (m[2] || '#800020') : '', talle, stock: Number(m[4]) || 0 } : null;
+          return (color || talle) ? { color, colorHex: color ? (m[2] || (typeof Colores !== 'undefined' && Colores.hexDeNombre(color)) || '') : '', talle, stock: Number(m[4]) || 0 } : null;
         }).filter(Boolean);
         if (variantes.length) item.variantes = variantes;
       }

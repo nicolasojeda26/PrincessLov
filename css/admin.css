@@ -3495,3 +3495,35 @@ details.tech-box > summary { cursor: pointer; font-weight: 700; color: var(--bor
 
 /* Stock repartido automáticamente al separar talles: resaltado para revisar */
 .variant-stock.input-revisar { border-color: #F59E0B; background: #FFFBEB; }
+
+/* Color de la variante: cuadradito + nombre + quitar */
+.variant-color-box { display: flex; gap: 0.4rem; align-items: center; }
+.variant-color-box .variant-color-name { flex: 1; min-width: 0; }
+.variant-color-input { flex: 0 0 36px; }
+.variant-color-clear {
+  flex: 0 0 28px; height: 28px; border: none; border-radius: var(--radio-sm);
+  background: transparent; color: var(--gris-500, #888); cursor: pointer; font-size: 0.8rem;
+}
+.variant-color-clear:hover { background: var(--gris-200); }
+.variant-row--sin-color .variant-color-clear { visibility: hidden; }
+/* Sin color: cuadradito rayado para que no parezca un color elegido */
+.variant-row--sin-color .variant-color-input {
+  border-style: dashed;
+  background: repeating-linear-gradient(45deg, #fff 0 4px, #e5e5e5 4px 8px);
+}
+.variant-row--sin-color .variant-color-input::-webkit-color-swatch { opacity: 0; }
+.variant-row--sin-color .variant-color-input::-moz-color-swatch { opacity: 0; }
+@media (max-width: 768px) {
+  .variant-row { grid-template-columns: 1fr 80px 44px; }
+  .variant-row .form-group:first-child { grid-column: 1 / -1; }
+}
+.variant-row .variant-color-input {
+  width: 42px; height: 42px; min-width: 42px; padding: 2px !important;
+  border: 2px solid var(--gris-200); border-radius: var(--radio-sm); background: #fff;
+}
+.variant-row .variant-color-input::-moz-color-swatch { border: none; border-radius: 4px; }
+.variant-row .variant-color-input::-webkit-color-swatch { border-radius: 4px; }
+.variant-row.variant-row--sin-color .variant-color-input {
+  border-style: dashed;
+  background: repeating-linear-gradient(45deg, #fff 0 4px, #e5e5e5 4px 8px);
+}

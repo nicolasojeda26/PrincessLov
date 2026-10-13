@@ -1173,6 +1173,13 @@ input, select { font-family: inherit; font-size: inherit; }
 .product-modal__variant-option:hover { border-color: var(--primary); }
 .product-modal__variant-option.selected { background: var(--text); color: var(--surface); border-color: var(--text); }
 .product-modal__variant-option.disabled { opacity: 0.3; cursor: not-allowed; }
+/* Mismo modelo en otros colores */
+.product-modal__color-swatch { width: 34px; height: 34px; border-radius: 50%; background: var(--swatch, #ccc); border: 1px solid var(--border); box-shadow: inset 0 0 0 3px var(--surface); cursor: pointer; position: relative; transition: transform var(--fast); }
+.product-modal__color-swatch:hover { transform: scale(1.08); }
+.product-modal__color-swatch.selected { outline: 2px solid var(--text); outline-offset: 2px; cursor: default; }
+.product-modal__color-swatch.sin-stock { opacity: 0.45; }
+.product-modal__color-swatch.sin-stock::after { content: ''; position: absolute; left: 50%; top: 3px; bottom: 3px; width: 1.5px; background: var(--text); transform: rotate(45deg); }
+.product-modal__colores { margin-bottom: var(--sp-3, 12px); }
 .product-modal__stock-info { margin-bottom: var(--sp-5); font-size: 13px; font-weight: 500; }
 .product-modal__stock-info.in-stock { color: #166534; }
 .product-modal__stock-info.low-stock { color: #B45309; }
@@ -1344,3 +1351,8 @@ button.cart__shipping-option:hover { border-color: var(--primary); }
 /* Secciones ocultas desde el admin y modo vista previa */
 .is-hidden-by-admin { display: none !important; }
 .is-preview .cookie-banner, .is-preview .loading-screen { display: none !important; }
+
+/* Color del producto en la tarjeta */
+.product-card__colors { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-muted, #777); margin: 2px 0 4px; }
+.product-card__colors span:last-child { margin-left: 2px; }
+.product-card__color-dot { width: 11px; height: 11px; border-radius: 50%; border: 1px solid var(--border); flex: 0 0 11px; }
