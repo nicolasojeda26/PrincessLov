@@ -527,7 +527,7 @@ const AdminProducts = {
     // Un solo color en el producto pero puesto solo en alguna fila → va para todas
     const filas = [...document.querySelectorAll('#variantes-container .variant-row')];
     const coloresFilas = filas.map(r => this.leerColorFila(r));
-    const distintos = [...new Map(coloresFilas.filter(c => c.color).map(c => [c.color.toLowerCase(), c])).values()];
+    const distintos = [...new Map(coloresFilas.filter(c => c.color).map(c => [typeof Colores !== 'undefined' ? Colores.normalizar(c.color) : c.color.toLowerCase(), c])).values()];
     if (distintos.length === 1 && coloresFilas.some(c => !c.color)) {
       filas.forEach((r, i) => {
         if (coloresFilas[i].color) return;
@@ -545,7 +545,7 @@ const AdminProducts = {
         if (stock > 0 && !errorVariante) errorVariante = `En la variante ${i + 1} falta el talle o el color`;
         return; // fila vacía: se ignora
       }
-      const clave = (color + '|' + talle).toLowerCase();
+      const clave = typeof Colores !== 'undefined' ? Colores.normalizar(color) + '|' + Colores.normalizar(talle) : (color + '|' + talle).toLowerCase();
       if (vistas.has(clave) && !errorVariante) errorVariante = `La variante "${[talle, color].filter(Boolean).join(' · ')}" está repetida`;
       vistas.add(clave);
       variantes.push({ color, colorHex, talle, stock });

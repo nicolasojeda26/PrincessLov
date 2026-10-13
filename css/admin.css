@@ -3527,3 +3527,12 @@ details.tech-box > summary { cursor: pointer; font-weight: 700; color: var(--bor
   border-style: dashed;
   background: repeating-linear-gradient(45deg, #fff 0 4px, #e5e5e5 4px 8px);
 }
+
+/* Ítems de un pedido: producto · cantidad · precio · talle/color · quitar */
+.order-item-row { display: grid; grid-template-columns: minmax(0,1.7fr) 64px minmax(0,0.8fr) minmax(0,1.7fr) 40px; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; }
+.order-item-row select, .order-item-row input { width: 100%; min-width: 0; }
+@media (max-width: 768px) {
+  .order-item-row { grid-template-columns: 70px 1fr 40px; padding: 0.5rem; border: 1px solid var(--gris-200); border-radius: var(--radio-md); }
+  .order-item-row > .form-group:first-child, .order-item-row > .order-item-variante-box { grid-column: 1 / -1; }
+  .order-item-row > button { grid-column: 3; grid-row: 2; }
+}

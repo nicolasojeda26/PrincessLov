@@ -370,8 +370,8 @@ const App = {
             <div class="product-card__cat">${escHtml(SheetsService.nombreFiltro(p.categoria) || p.categoriaOriginal)}</div>
             <h3 class="product-card__name">${escHtml(p.nombre)}</h3>
             ${(() => {
-              const cs = [...new Map((p.variantes || []).filter(v => v.color).map(v => [v.color.trim().toLowerCase(), v])).values()];
-              return cs.length ? `<div class="product-card__colors">${cs.slice(0, 5).map(v => `<span class="product-card__color-dot" style="background:${escHtml(Colores.hexPara(v.color, v.colorHex))}"></span>`).join('')}<span>${escHtml(cs.length === 1 ? cs[0].color.trim() : cs.length + ' colores')}</span></div>` : '';
+              const cs = [...new Map((p.variantes || []).filter(v => v.color).map(v => [Colores.normalizar(v.color), v])).values()];
+              return cs.length ? `<div class="product-card__colors">${cs.slice(0, 5).map(v => `<span class="product-card__color-dot" style="background:${escHtml(Colores.hexPara(v.color, v.colorHex))}"></span>`).join('')}<span>${escHtml(cs.length === 1 ? Colores.mostrar(cs[0].color) : cs.length + ' colores')}</span></div>` : '';
             })()}
             <div class="product-card__prices">
               ${precioARS < basePrecio
@@ -502,12 +502,12 @@ const App = {
     const hermanos = this.otrosColores(producto);
     const htmlColores = hermanos.length > 1 ? `
           <div class="product-modal__variant-group product-modal__colores">
-            <div class="product-modal__variant-label">Color: <strong>${escHtml(this.colorDeProducto(producto)?.color || '')}</strong></div>
+            <div class="product-modal__variant-label">Color: <strong>${escHtml(Colores.mostrar(this.colorDeProducto(producto)?.color))}</strong></div>
             <div class="product-modal__variant-options">
               ${hermanos.map(h => `
                 <button type="button" class="product-modal__color-swatch ${h.p.id === producto.id ? 'selected' : ''} ${h.p.stock > 0 ? '' : 'sin-stock'}"
-                        style="--swatch:${escHtml(Colores.hexPara(h.color, h.colorHex))}" title="${escHtml(h.color)}${h.p.stock > 0 ? '' : ' (sin stock)'}"
-                        aria-label="${escHtml(h.color)}" ${h.p.id === producto.id ? 'aria-current="true"' : `onclick="App.openProductModal('${escJsAttr(h.p.id)}')"`}></button>
+                        style="--swatch:${escHtml(Colores.hexPara(h.color, h.colorHex))}" title="${escHtml(Colores.mostrar(h.color))}${h.p.stock > 0 ? '' : ' (sin stock)'}"
+                        aria-label="${escHtml(Colores.mostrar(h.color))}${h.p.stock > 0 ? '' : ' (sin stock)'}" ${h.p.id === producto.id ? 'aria-current="true"' : `onclick="App.openProductModal('${escJsAttr(h.p.id)}')"`}></button>
               `).join('')}
             </div>
           </div>` : '';
@@ -598,7 +598,7 @@ const App = {
   colorDeProducto(producto) {
     const cs = (producto?.variantes || []).filter(v => v.color);
     if (!cs.length) return null;
-    const nombres = new Set(cs.map(v => v.color.trim().toLowerCase()));
+    const nombres = new Set(cs.map(v => Colores.normalizar(v.color)));
     return nombres.size === 1 ? { color: cs[0].color.trim(), colorHex: cs[0].colorHex || '' } : null;
   },
 
@@ -614,7 +614,7 @@ const App = {
       .forEach(p => {
         const c = this.colorDeProducto(p);
         if (!c) return;
-        const k = c.color.toLowerCase();
+        const k = Colores.normalizar(c.color);
         if (vistos.has(k)) return; // mismo color cargado dos veces: queda el primero
         vistos.add(k);
         lista.push({ p, color: c.color, colorHex: c.colorHex });

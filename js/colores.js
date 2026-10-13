@@ -65,6 +65,14 @@ const Colores = {
     return [116 * y - 16, 500 * (x - y), 200 * (y - z)];
   },
 
+  /** Nombre prolijo para mostrar: "bordo" → "Bordó", "negro" → "Negro" */
+  mostrar(nombre) {
+    const t = String(nombre || '').trim();
+    const n = this.normalizar(t);
+    const de = this.LISTA.find(([c]) => this.normalizar(c) === n);
+    return de ? de[0] : t.charAt(0).toUpperCase() + t.slice(1);
+  },
+
   /** Tono para dibujar: el guardado, o el que corresponde al nombre */
   hexPara(nombre, hex) {
     return this.esHex(hex) ? hex : (this.hexDeNombre(nombre) || '#cccccc');

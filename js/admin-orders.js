@@ -173,8 +173,7 @@ const AdminOrders = {
     const container = document.getElementById('order-items-container');
     const products = AdminData.getProducts();
     const row = document.createElement('div');
-    row.className = 'form-grid';
-    row.style.marginBottom = '0.5rem';
+    row.className = 'form-grid order-item-row';
     row.innerHTML = `
       <div class="form-group" style="margin-bottom:0;">
         <select class="order-item-product" required onchange="AdminOrders.onProductChange(this)">
@@ -182,7 +181,9 @@ const AdminOrders = {
           ${products.map(p => {
             // Precio real de venta en pesos (antes se calculaba desde el USD y daba $0 en productos con precio fijo)
             const precioARS = AdminData.precioVentaARS(p);
-            return `<option value="${escHtml(p.id)}" data-price="${precioARS}" ${item && String(item.productoId) === String(p.id) ? 'selected' : ''}>${escHtml(p.nombre)} — ${AdminData.formatARS(precioARS)}${p.stock > 0 ? '' : ' (sin stock)'}</option>`;
+            // Con el color en el nombre: hay varios productos que se llaman igual (uno por color)
+            const colores = [...new Set((p.variantes || []).map(v => String(v.color || '').trim()).filter(Boolean))];
+            return `<option value="${escHtml(p.id)}" data-price="${precioARS}" ${item && String(item.productoId) === String(p.id) ? 'selected' : ''}>${escHtml(p.nombre)}${colores.length ? ' · ' + escHtml(colores.join(', ')) : ''} — ${AdminData.formatARS(precioARS)}${p.stock > 0 ? '' : ' (sin stock)'}</option>`;
           }).join('')}
         </select>
       </div>
@@ -191,12 +192,34 @@ const AdminOrders = {
       </div>
       <div class="form-group" style="margin-bottom:0;">
         <input type="number" class="order-item-precio" step="0.01" value="${item ? Number(item.precioUnitario) || '' : ''}" placeholder="Precio unit. (ARS)">
-        <input type="hidden" class="order-item-variante" value="${escHtml(item?.variante || '')}">
         <input type="hidden" class="order-item-nombre" value="${escHtml(item?.nombre || '')}">
+      </div>
+      <div class="form-group order-item-variante-box" style="margin-bottom:0;">
+        <select class="order-item-variante" aria-label="Talle / color"></select>
       </div>
       <button type="button" class="btn btn-sm btn-danger" onclick="this.parentElement.remove()">✕</button>
     `;
     container.appendChild(row);
+    this.llenarVariantes(row, item?.variante || '');
+  },
+
+  /** Desplegable de talle/color del producto elegido (se oculta si el producto no tiene) */
+  llenarVariantes(row, elegida) {
+    const sel = row.querySelector('.order-item-variante');
+    const box = row.querySelector('.order-item-variante-box');
+    if (!sel) return;
+    const p = AdminData.getProduct(row.querySelector('.order-item-product')?.value);
+    const vars = Array.isArray(p?.variantes) ? p.variantes : [];
+    const clave = v => `${String(v.color || '').trim()} / ${String(v.talle || '').trim()}`;
+    const norm = t => String(t || '').split('/').map(x => x.trim()).join(' / ');
+    const opciones = vars.map(v => ({ valor: clave(v), texto: `${AdminData.varianteLegible(clave(v))} (${Number(v.stock) || 0} en stock)` }));
+    // Pedido viejo con una variante que ya no existe: se conserva tal cual
+    if (elegida && !opciones.some(o => o.valor === norm(elegida))) opciones.push({ valor: elegida, texto: AdminData.varianteLegible(elegida) + ' (ya no está cargada)' });
+    sel.innerHTML = (opciones.length ? '<option value="">Elegí talle / color…</option>' : '<option value=""></option>') +
+      opciones.map(o => `<option value="${escHtml(o.valor)}" ${norm(elegida) === norm(o.valor) || elegida === o.valor ? 'selected' : ''}>${escHtml(o.texto)}</option>`).join('');
+    if (opciones.length === 1 && !elegida) sel.value = opciones[0].valor;
+    sel.required = opciones.length > 0;
+    if (box) box.style.display = opciones.length ? '' : 'none';
   },
 
   onProductChange(select) {
@@ -210,7 +233,7 @@ const AdminOrders = {
         priceInput.value = price;
         priceInput.dataset.auto = price;
       }
-      const varInput = row.querySelector('.order-item-variante'); if (varInput) varInput.value = '';
+      this.llenarVariantes(row, '');
       const nomInput = row.querySelector('.order-item-nombre'); if (nomInput) nomInput.value = '';
     }
   },

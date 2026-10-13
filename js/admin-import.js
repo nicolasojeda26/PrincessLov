@@ -323,13 +323,26 @@ const AdminImport = {
       // --- Talles / colores: "Negro(#000000)/M:2 | /S:1" o simplemente "S:1, M:2" ---
       let variantes = null;
       if (tiene('variantes') && txt(row, 'variantes')) {
-        variantes = txt(row, 'variantes').split(/[|;,]/).map(v => v.trim()).filter(Boolean).map(v => {
+        // Las filas van separadas por "|" o ";". La coma solo separa filas en el formato
+        // corto "S:1, M:2" (cada parte con su cantidad): en "/S, L:1" la coma es parte
+        // del talle (antes quedaba S con 0 y L con 1, sin avisar).
+        const crudas = txt(row, 'variantes').split(/\s*[|;]\s*/).flatMap(ch => {
+          const partes = ch.split(/\s*,\s*/);
+          return partes.length > 1 && partes.every(x => /:\s*\d+\s*$/.test(x)) ? partes : [ch];
+        });
+        variantes = crudas.map(v => v.trim()).filter(Boolean).map(v => {
           const m = v.match(/^(.*?)(?:\((#[0-9a-fA-F]{3,8})?\))?\s*(?:\/\s*(.*?))?\s*(?::\s*(\d+))?$/);
           if (!m) return null;
           let color = (m[1] || '').trim(), talle = (m[3] || '').trim();
           if (m[3] === undefined && !m[2]) { talle = color; color = ''; } // "M:2" → solo talle
           return (color || talle) ? { color, colorHex: color ? (m[2] || (typeof Colores !== 'undefined' && Colores.hexDeNombre(color)) || '') : '', talle, stock: Number(m[4]) || 0 } : null;
-        }).filter(Boolean);
+        }).filter(Boolean).flatMap(v => {
+          // "S, M" con 2 unidades → S:1 y M:1 (igual que en el formulario). Si las
+          // unidades no se pueden repartir seguro, queda como está y el formulario
+          // pide revisarlo la próxima vez que se abra el producto.
+          const talles = typeof AdminProducts !== 'undefined' ? AdminProducts.separarTalles(v.talle) : [v.talle];
+          return talles.length > 1 && v.stock === talles.length ? talles.map(t => ({ ...v, talle: t, stock: 1 })) : [v];
+        });
         if (variantes.length) item.variantes = variantes;
       }
 
