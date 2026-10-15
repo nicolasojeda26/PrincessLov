@@ -7,6 +7,9 @@ const App = {
   categoriaActual: 'todos',
   stockFilter: 'all',
   sortOrder: 'featured',
+  paginaActual: 1,
+  porPagina: 24, // divisible por 2, 3 y 4 columnas: las filas quedan completas
+  _firmaLista: null,
 
   async init() {
     try {
@@ -347,6 +350,7 @@ const App = {
     if (this.categoriaActual && this.categoriaActual !== 'todos') params.set('cat', this.categoriaActual);
     if (this.stockFilter && this.stockFilter !== 'all') params.set('stock', this.stockFilter);
     if (this.sortOrder && this.sortOrder !== 'featured') params.set('sort', this.sortOrder);
+    if (this.paginaActual > 1) params.set('pagina', this.paginaActual);
     const qs = params.toString();
     const newURL = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
     window.history.replaceState({}, '', newURL);
@@ -357,6 +361,7 @@ const App = {
     if (params.has('cat')) this.categoriaActual = params.get('cat') || 'todos';
     if (params.has('stock')) this.stockFilter = params.get('stock') || 'all';
     if (params.has('sort')) this.sortOrder = params.get('sort') || 'featured';
+    if (params.has('pagina')) this.paginaActual = parseInt(params.get('pagina'), 10) || 1;
   },
 
   /* ---------- HEADER SEARCH ---------- */
@@ -375,6 +380,65 @@ const App = {
     }
   },
 
+  /* ---------- PAGINACIÓN ---------- */
+  renderPaginacion(total, totalPaginas) {
+    const grid = document.getElementById('productos-grid');
+    let nav = document.getElementById('productos-paginacion');
+    if (!nav && grid) {
+      nav = document.createElement('nav');
+      nav.id = 'productos-paginacion';
+      nav.className = 'paginacion';
+      nav.setAttribute('aria-label', 'Páginas de productos');
+      grid.after(nav);
+    }
+    if (!nav) return;
+    if (totalPaginas <= 1) { nav.hidden = true; nav.innerHTML = ''; return; }
+    nav.hidden = false;
+
+    const actual = this.paginaActual;
+    const desde = (actual - 1) * this.porPagina + 1;
+    const hasta = Math.min(actual * this.porPagina, total);
+    // 1 … 4 5 6 … 9 : primera, última y las vecinas de la actual
+    const nums = [];
+    for (let i = 1; i <= totalPaginas; i++) {
+      if (i === 1 || i === totalPaginas || Math.abs(i - actual) <= 1) nums.push(i);
+    }
+    let numsHtml = '';
+    let prev = 0;
+    nums.forEach(n => {
+      if (n - prev > 1) numsHtml += '<span class="paginacion__dots" aria-hidden="true">…</span>';
+      numsHtml += n === actual
+        ? `<span class="paginacion__num paginacion__num--activa" aria-current="page">${n}</span>`
+        : `<button type="button" class="paginacion__num" onclick="App.irAPagina(${n})" aria-label="Página ${n}">${n}</button>`;
+      prev = n;
+    });
+
+    nav.innerHTML = `
+      <div class="paginacion__controles">
+        <button type="button" class="paginacion__flecha" onclick="App.irAPagina(${actual - 1})" ${actual === 1 ? 'disabled' : ''} aria-label="Página anterior">‹<span class="paginacion__flecha-txt"> Anterior</span></button>
+        <div class="paginacion__nums">${numsHtml}</div>
+        <button type="button" class="paginacion__flecha" onclick="App.irAPagina(${actual + 1})" ${actual === totalPaginas ? 'disabled' : ''} aria-label="Página siguiente"><span class="paginacion__flecha-txt">Siguiente </span>›</button>
+      </div>
+      <p class="paginacion__info">Mostrando ${desde}–${hasta} de ${total} productos</p>`;
+  },
+
+  irAPagina(n) {
+    const total = Math.max(1, Math.ceil((this.productosFiltrados || []).length / this.porPagina));
+    const pagina = Math.min(Math.max(1, n), total);
+    if (pagina === this.paginaActual) return;
+    this.paginaActual = pagina;
+    this.renderProductos(this.productosFiltrados);
+    this._syncURL();
+    // Subir al principio de la grilla (dejando lugar para el header fijo)
+    const destino = document.getElementById('cat-pills') || document.getElementById('productos-grid');
+    if (destino) {
+      const header = document.querySelector('.header');
+      const alto = header ? header.getBoundingClientRect().height : 0;
+      const y = destino.getBoundingClientRect().top + window.scrollY - alto - 16;
+      window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
+    }
+  },
+
   /* ---------- PRODUCTOS GRID ---------- */
   renderProductos(productos) {
     const grid = document.getElementById('productos-grid');
@@ -383,6 +447,19 @@ const App = {
     if (!grid) return;
 
     this.productosFiltrados = productos;
+
+    // Paginación: si cambió la lista (otro filtro, orden o búsqueda) vuelve a la página 1;
+    // si es la misma (repintado por promos o datos nuevos) se queda donde estaba.
+    const firma = productos.map(p => p.id).join('|');
+    const paginaAntes = this.paginaActual;
+    if (this._firmaLista !== null && firma !== this._firmaLista) this.paginaActual = 1;
+    this._firmaLista = firma;
+    const totalPaginas = Math.max(1, Math.ceil(productos.length / this.porPagina));
+    this.paginaActual = Math.min(Math.max(1, parseInt(this.paginaActual, 10) || 1), totalPaginas);
+    if (this.paginaActual !== paginaAntes) this._syncURL();
+    const desdeIdx = (this.paginaActual - 1) * this.porPagina;
+    const visibles = productos.slice(desdeIdx, desdeIdx + this.porPagina);
+    this.renderPaginacion(productos.length, totalPaginas);
 
     if (countEl) countEl.textContent = `${productos.length} producto${productos.length !== 1 ? 's' : ''}`;
 
@@ -407,7 +484,7 @@ const App = {
     grid.style.display = 'grid';
     if (emptyEl) emptyEl.style.display = 'none';
 
-    grid.innerHTML = productos.map(p => {
+    grid.innerHTML = visibles.map(p => {
       const basePrecio = SheetsService.calcularPrecioARS(p.precioUSD, p);
       const precioARS = (typeof PromoEngine !== 'undefined' && PromoEngine.precioVistaARS) ? PromoEngine.precioVistaARS(p) : basePrecio;
       const sinStock = p.stock <= 0;
