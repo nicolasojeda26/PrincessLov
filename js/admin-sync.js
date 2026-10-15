@@ -106,6 +106,37 @@ const AdminSync = {
       });
   },
 
+  /** Manda a la planilla un movimiento de stock y deja el producto local igual al de la planilla */
+  publicarAjusteStock(d) {
+    if (!d || !d.productId || !d.delta || !this.habilitado()) return;
+    this.post('adjust_stock', { productoId: d.productId, variante: d.variante || '', delta: d.delta })
+      .then((res) => {
+        if (res && res.error) throw new Error(res.error);
+        this.errores = 0; this.ultimaSync = new Date(); this.pintarEstado();
+        if (!res || typeof res.stock !== 'number') return;
+        const prods = AdminData.getProducts();
+        const p = prods.find(x => String(x.id) === String(d.productId));
+        if (!p) return;
+        p.stock = res.stock;
+        if (Array.isArray(res.variantes)) p.variantes = res.variantes;
+        AdminData.saveProducts(prods);
+        if (AdminApp.currentSection === 'products' || AdminApp.currentSection === 'dashboard') {
+          try { AdminApp.renderSection(AdminApp.currentSection); } catch {}
+        }
+      })
+      .catch(err => {
+        this.errores++;
+        this.pintarEstado();
+        const nombre = d.producto?.nombre ? `"${d.producto.nombre}"` : 'el producto';
+        // Apps Script viejo (sin adjust_stock): se publica el producto entero como antes
+        if (/no válida/i.test(err.message) && d.producto) {
+          this.publicar('upsert_product', { product: SheetsService.serializeForSheets(d.producto) }, nombre);
+          return;
+        }
+        AdminApp.toast(`⚠️ No se actualizó el stock de ${nombre} en la tienda (${err.message})`, 'error');
+      });
+  },
+
   async leer(sheet) {
     const res = await this.post('admin_read', { sheet });
     if (res && !Array.isArray(res) && res.error) throw new Error(res.error);
@@ -291,8 +322,9 @@ const AdminSync = {
     wrap('saveContenido', () => self.publicar('save_config', { config: { contenido: JSON.stringify(AdminData.getContenido() || {}) } }, 'los textos del home'));
     wrap('resetContenido', () => self.publicar('save_config', { config: { contenido: '' } }, 'los textos del home'));
 
-    // Cambios de stock por pedidos (confirmar/cancelar) también se publican
-    window.addEventListener('admin:stock', (e) => { if (!self._silencio) prod(e.detail); });
+    // Cambios de stock por pedidos (cancelar/reactivar/editar): se manda solo la
+    // diferencia ("restá 1 del talle M"), así no se pisa lo que la web ya descontó.
+    window.addEventListener('admin:stock', (e) => { if (!self._silencio) self.publicarAjusteStock(e.detail); });
   },
 
   init() {
@@ -300,6 +332,17 @@ const AdminSync = {
     this.pintarEstado();
     this.avisoLocal();
     if (this.habilitado()) this.sincronizar(false);
+    // Pedidos nuevos sin recargar: al volver a la pestaña/app y cada 2 minutos
+    // (nunca con una ventana de edición abierta, para no pisar lo que se está escribiendo).
+    const refrescar = () => {
+      if (!this.habilitado() || document.hidden || this._sincronizando) return;
+      if (document.querySelector('.modal.open, .modal-overlay.open')) return;
+      if (this.ultimaSync && Date.now() - this.ultimaSync.getTime() < 60 * 1000) return;
+      this._sincronizando = true;
+      this.sincronizar(false).finally(() => { this._sincronizando = false; });
+    };
+    document.addEventListener('visibilitychange', refrescar);
+    setInterval(refrescar, 2 * 60 * 1000);
   },
 };
 

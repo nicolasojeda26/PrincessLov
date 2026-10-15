@@ -102,7 +102,7 @@ function nuevoCarrito() {
     },
     window: { addEventListener() {}, dispatchEvent() {} },
     document: { addEventListener() {}, querySelectorAll: () => [] },
-    CONFIG: { promos: PROMOS, envios: ENVIOS, sheets: { appsScriptUrl: '' } },
+    CONFIG: { promos: PROMOS, envios: ENVIOS, enviosPrecioACoordinar: false /* estos tests comparan con Mercado Pago, que cobra el envío */, sheets: { appsScriptUrl: '' } },
     SheetsService: {
       productos,
       cotizacionDolar: DOLAR,

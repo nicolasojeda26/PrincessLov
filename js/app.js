@@ -1028,7 +1028,7 @@ const App = {
         </div>` : ''}
         <div class="cart__totals-row cart__totals-row--shipping">
           <span class="cart__totals-label">Envío</span>
-          <span>${CartService.shippingId ? (shipping > 0 ? SheetsService.formatPrecioARS(shipping) : 'Gratis') : 'A elegir'}</span>
+          <span>${CartService.getShippingOption() ? escHtml(CartService.textoCostoEnvio(CartService.getShippingOption())) : 'A elegir'}</span>
         </div>
         <div class="cart__totals-row cart__totals-row--total">
           <span class="cart__totals-label">Total</span>
@@ -1139,15 +1139,14 @@ const App = {
     const txt = document.getElementById('shipping-toggle-text');
     if (txt) {
       if (elegido) {
-        const costo = CartService.getShippingCost();
-        txt.innerHTML = `Envío: <strong>${escHtml(elegido.nombre)}</strong> · ${costo > 0 ? SheetsService.formatPrecioARS(costo) : 'Gratis'}`;
+        txt.innerHTML = `Envío: <strong>${escHtml(elegido.nombre)}</strong> · ${escHtml(CartService.textoCostoEnvio(elegido))}`;
       } else {
         txt.textContent = 'Elegí cómo te llega';
       }
     }
     el.innerHTML = (CONFIG.envios || []).filter(e => e.activo !== false).map(e => {
       const sel = CartService.shippingId === e.id;
-      const precio = Number(e.precio) > 0 && !gratis ? SheetsService.formatPrecioARS(e.precio) : 'Gratis';
+      const precio = escHtml(CartService.textoCostoEnvio(e));
       return `
         <button type="button" class="cart__shipping-option ${sel ? 'cart__shipping-option--selected' : ''}" data-shipping="${escHtml(e.id)}" aria-pressed="${sel}">
           <span class="cart__shipping-option-label">

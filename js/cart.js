@@ -374,7 +374,21 @@ const CartService = {
     const envio = this.getShippingOption();
     if (!envio) return 0;
     if (this.hasFreeShipping()) return 0;
+    if (this.envioACoordinar(envio)) return 0; // se arregla por WhatsApp, no se suma al total
     return Number(envio.precio) || 0;
+  },
+
+  /** Envíos con costo: el precio se coordina por WhatsApp (CONFIG.enviosPrecioACoordinar) */
+  envioACoordinar(envio) {
+    return !!envio && Number(envio.precio) > 0 && CONFIG.enviosPrecioACoordinar !== false;
+  },
+
+  /** Lo que se muestra como costo de un envío: "Gratis", "Precio a coordinar" o el precio */
+  textoCostoEnvio(envio) {
+    if (!envio) return '';
+    if (!(Number(envio.precio) > 0) || this.hasFreeShipping()) return 'Gratis';
+    if (this.envioACoordinar(envio)) return 'Precio a coordinar';
+    return SheetsService.formatPrecioARS(envio.precio);
   },
 
   /**
@@ -471,7 +485,7 @@ const CartService = {
     if (cupon > 0) res.push(`Descuento${this.promoCode ? ' (' + this.promoCode + ')' : ''}: -${f(cupon)}`);
     autoLines.forEach(l => res.push(`${l.label}: -${f(l.monto)}`));
     if (envio) {
-      res.push(`Envío: ${envio.nombre} — ${envioCosto > 0 ? f(envioCosto) : 'GRATIS'}`);
+      res.push(`Envío: ${envio.nombre} — ${this.textoCostoEnvio(envio)}`);
     } else {
       res.push('Envío: a coordinar');
     }
@@ -481,7 +495,8 @@ const CartService = {
     const partes = [];
     partes.push(esClub ? 'Yanela del club Prince quiero esto 👑' : `¡Hola ${tienda}! 🛍️ Quiero hacer este pedido:`);
     if (pedidoId) partes.push(`*Pedido #${pedidoId}*`);
-    partes.push('', '*Productos*', ...lineas, '', ...res, `*Total: ${f(total)}*`);
+    const aCoordinar = envio && this.getShippingCost() === 0 && this.textoCostoEnvio(envio) === 'Precio a coordinar';
+    partes.push('', '*Productos*', ...lineas, '', ...res, `*Total: ${f(total)}*${aCoordinar ? ' + envío' : ''}`);
 
     if (datos) {
       partes.push('', `*Forma de pago:* ${datos.medioPago || 'A coordinar'}`);

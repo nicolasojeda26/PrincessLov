@@ -9,7 +9,7 @@ const AdminApp = {
   /** Título, subtítulo y ayuda corta de cada sección (lo que ve la dueña) */
   SECTIONS: {
     dashboard: ['Inicio', 'Resumen de tu tienda', ''],
-    orders: ['Pedidos', 'Lo que te compran', 'Los pedidos de la web llegan como "Pendiente". Cuando la clienta confirma y paga por WhatsApp, cambiá el estado a "Confirmado": ahí se descuenta el stock.'],
+    orders: ['Pedidos', 'Lo que te compran', 'Los pedidos de la web llegan como "Pendiente" y ya descuentan el stock. Cuando la clienta paga, pasalo a "Confirmado". Si no compra, ponelo en "Cancelado": el stock vuelve solo.'],
     products: ['Productos', 'Tu catálogo', 'Todo lo que cargues o edites acá se publica en la tienda. Los productos "Inactivos" no se muestran.'],
     promos: ['Promos y cupones', 'Descuentos, 2x1, combos y ofertas relámpago', 'Los cupones los escribe la clienta en el carrito. El 2x1, combos y flash sales se aplican solos.'],
     home: ['Página principal', 'Editá lo que ven tus clientas', 'Tocá una sección para abrirla, cambiá textos o fotos y apretá "Guardar y publicar". En la vista previa ves cómo queda. Con el interruptor verde mostrás u ocultás cada sección.'],

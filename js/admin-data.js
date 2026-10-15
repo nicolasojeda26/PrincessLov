@@ -113,8 +113,10 @@ const AdminData = {
     return Array.isArray(v) ? v : [];
   },
 
-  /** Estados en los que la mercadería ya está comprometida */
-  ESTADOS_CON_STOCK: ['confirmado', 'preparando', 'enviado', 'entregado'],
+  /** Estados en los que la mercadería ya está comprometida.
+   *  Desde oct/2026 "pendiente" también: el pedido descuenta apenas llega
+   *  y solo "cancelado" devuelve el stock. */
+  ESTADOS_CON_STOCK: ['pendiente', 'confirmado', 'preparando', 'enviado', 'entregado'],
 
   _moverStock(order, signo) {
     (order.items || []).forEach(item => this.adjustStock(item.productoId, signo * (Number(item.cantidad) || 0), item.variante));
@@ -134,8 +136,8 @@ const AdminData = {
       order.total = order.items.reduce((s, i) => s + ((i.precioUnitario || 0) * i.cantidad), 0);
     }
     if (order.costoTotal == null) order.costoTotal = 0;
-    // El stock se descuenta cuando el pedido está confirmado (o más avanzado).
-    // Un pedido "pendiente" (ej. recién llegado por WhatsApp) todavía no reserva stock.
+    // El stock se descuenta en cuanto el pedido existe (pendiente o más avanzado);
+    // solo un pedido "cancelado" no lo toma.
     order.stockDescontado = false;
     if (this.ESTADOS_CON_STOCK.includes(order.estado) && order.items.length) {
       this._moverStock(order, -1);
@@ -158,11 +160,18 @@ const AdminData = {
     // después descontamos según el estado/ítems nuevos. Así funciona al
     // confirmar, cancelar, reactivar o editar cantidades (antes solo
     // devolvía stock al cancelar y nunca lo volvía a descontar).
-    if (oldOrder.stockDescontado) this._moverStock(oldOrder, +1);
-    nuevo.stockDescontado = false;
-    if (this.ESTADOS_CON_STOCK.includes(nuevo.estado) && (nuevo.items || []).length) {
-      this._moverStock(nuevo, -1);
+    const firmaItems = (o) => JSON.stringify((o.items || []).map(i => [String(i.productoId), i.variante || '', Number(i.cantidad) || 0]));
+    const sigueTomando = this.ESTADOS_CON_STOCK.includes(nuevo.estado) && (nuevo.items || []).length;
+    if (oldOrder.stockDescontado && sigueTomando && firmaItems(oldOrder) === firmaItems(nuevo)) {
+      // Solo cambió el estado (ej. pendiente → confirmado): el stock ya está descontado
       nuevo.stockDescontado = true;
+    } else {
+      if (oldOrder.stockDescontado) this._moverStock(oldOrder, +1);
+      nuevo.stockDescontado = false;
+      if (sigueTomando) {
+        this._moverStock(nuevo, -1);
+        nuevo.stockDescontado = true;
+      }
     }
 
     orders[idx] = nuevo;
@@ -239,7 +248,7 @@ const AdminData = {
     if (!tocada) p.stock = Math.max(0, (Number(p.stock) || 0) + delta);
     p.fechaModificacion = new Date().toISOString();
     this.saveProducts(products);
-    window.dispatchEvent(new CustomEvent('admin:stock', { detail: p }));
+    window.dispatchEvent(new CustomEvent('admin:stock', { detail: { producto: p, productId: p.id, delta, variante: variante || '' } }));
     return p;
   },
 

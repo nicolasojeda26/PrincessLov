@@ -143,6 +143,7 @@ function doPost(e) {
       // --- solo admin ---
       case 'admin_read': result = readSheet(data.sheet || 'pedidos'); break;
       case 'upsert_product': result = upsertProduct(data.product); break;
+      case 'adjust_stock': result = ajustarStock(data.productoId, data.variante, data.delta); break;
       case 'delete_product': result = deleteProduct(data.id); break;
       case 'update_order': result = updateOrder(data.id, data.updates); break;
       case 'delete_order': result = deleteRowById(SHEET_NAMES.PEDIDOS, data.id); break;
@@ -390,6 +391,22 @@ function upsertProduct(product) {
   return { success: true, id: rowData.ID };
 }
 
+/** Admin: suma/resta stock a un producto (o a su variante) sobre el valor actual de la planilla */
+function ajustarStock(productoId, variante, delta) {
+  const d = Math.round(Number(delta) || 0);
+  if (!productoId || !d) return { error: 'Ajuste de stock inválido' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const mov = moverStock([{ productoId: String(productoId), variante: variante || '', cantidad: Math.abs(d), nombre: '' }], d > 0 ? 1 : -1);
+    const p = mov.productos[String(productoId)];
+    if (!p) return { error: 'Producto no encontrado' };
+    return { success: true, stock: p.stock, variantes: p.variantes };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function deleteProduct(id) {
   return deleteRowById(SHEET_NAMES.PRODUCTOS, id);
 }
@@ -454,6 +471,21 @@ function createOrder(order, esAdmin) {
   const lock = LockService.getScriptLock();
   lock.waitLock(15000);
   try {
+    // Pedido de la web: el stock se descuenta apenas llega (antes esperaba a que
+    // la dueña lo confirmara y se vendía dos veces lo mismo). Si lo cancela en
+    // el admin, el stock vuelve. Los pedidos cargados desde el admin descuentan allá.
+    if (!esAdmin) {
+      rowData.StockDescontado = 'no';
+      try {
+        const mov = moverStock(items, -1);
+        rowData.StockDescontado = 'si';
+        if (mov.faltantes.length) {
+          rowData.Notas = limpio(('⚠️ No había stock suficiente de: ' + mov.faltantes.join(', ') + (rowData.Notas ? ' | ' + rowData.Notas : '')), 500);
+        }
+      } catch (err) {
+        rowData.Notas = limpio('⚠️ No se pudo descontar el stock: ' + (err && err.message || err) + (rowData.Notas ? ' | ' + rowData.Notas : ''), 500);
+      }
+    }
     writeRow(sheetName, rowData, id);
   } finally {
     lock.releaseLock();
@@ -742,19 +774,31 @@ function parseItemsPedido(raw) {
  * Si el item tiene variante, descuenta de esa variante y recalcula el total.
  */
 function descontarStock(items) {
-  if (!items || !items.length) return;
+  return moverStock(items, -1);
+}
+
+/**
+ * Suma (signo +1) o resta (signo -1) del stock de la planilla las cantidades
+ * de los items. Respeta la variante ("Color / Talle"). Nunca deja stock negativo:
+ * lo que no alcanzó vuelve en `faltantes` para avisarle a la dueña.
+ * Devuelve también cómo quedó cada producto tocado.
+ */
+function moverStock(items, signo) {
+  const out = { faltantes: [], productos: {} };
+  if (!items || !items.length) return out;
 
   const sheet = getSheet(SHEET_NAMES.PRODUCTOS);
   const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return;
+  if (lastRow < 2) return out;
 
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
   const colID = headers.indexOf('ID');
   const colStock = headers.indexOf('Stock');
   const colVariantes = headers.indexOf('Variantes');
-  if (colID === -1 || colStock === -1) return;
+  if (colID === -1 || colStock === -1) return out;
 
   const datos = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+  const norm = function (v) { return String(v == null ? '' : v).trim().toLowerCase(); };
 
   items.forEach(function (item) {
     const pid = String(item.productoId || item.id || '');
@@ -763,38 +807,50 @@ function descontarStock(items) {
 
     const idx = datos.findIndex(function (r) { return String(r[colID]) === pid; });
     if (idx === -1) return;
-
     const fila = idx + 2;
+    const delta = signo * cant;
+    let quedo = null;
 
-    // Variante: "Rojo / M"
+    // Variante: "Rojo / M" (o " / M" cuando no tiene color)
     if (item.variante && colVariantes !== -1) {
       const partes = String(item.variante).split('/');
-      const color = (partes[0] || '').trim();
-      const talle = (partes[1] || '').trim();
+      const color = norm(partes[0]);
+      const talle = norm(partes[1]);
       let variantes = [];
-      try { variantes = JSON.parse(datos[idx][colVariantes] || '[]'); } catch (e) { variantes = []; }
+      try {
+        variantes = datos[idx][colVariantes];
+        if (typeof variantes === 'string') variantes = JSON.parse(variantes || '[]');
+        if (!Array.isArray(variantes)) variantes = [];
+      } catch (e) { variantes = []; }
 
-      if (variantes.length) {
-        let tocada = false;
-        variantes = variantes.map(function (v) {
-          if (v.color === color && v.talle === talle) {
-            tocada = true;
-            v.stock = Math.max(0, (Number(v.stock) || 0) - cant);
-          }
-          return v;
-        });
-        if (tocada) {
-          sheet.getRange(fila, colVariantes + 1).setValue(JSON.stringify(variantes));
-          const totalVar = variantes.reduce(function (s, v) { return s + (Number(v.stock) || 0); }, 0);
-          sheet.getRange(fila, colStock + 1).setValue(totalVar);
-          return;
-        }
+      const v = variantes.find(function (x) { return norm(x.color) === color && norm(x.talle) === talle; });
+      if (v) {
+        const antes = Number(v.stock) || 0;
+        if (antes + delta < 0) out.faltantes.push(item.nombre + ' (' + item.variante + ')');
+        v.stock = Math.max(0, antes + delta);
+        const total = variantes.reduce(function (s2, x) { return s2 + (Number(x.stock) || 0); }, 0);
+        const json = JSON.stringify(variantes);
+        sheet.getRange(fila, colVariantes + 1).setValue(json);
+        sheet.getRange(fila, colStock + 1).setValue(total);
+        datos[idx][colVariantes] = json; // por si el mismo producto viene dos veces
+        datos[idx][colStock] = total;
+        quedo = { stock: total, variantes: variantes };
       }
     }
 
-    const stockActual = Number(datos[idx][colStock]) || 0;
-    sheet.getRange(fila, colStock + 1).setValue(Math.max(0, stockActual - cant));
+    if (!quedo) {
+      const antes = Number(datos[idx][colStock]) || 0;
+      if (antes + delta < 0) out.faltantes.push(item.nombre || pid);
+      const nuevo = Math.max(0, antes + delta);
+      sheet.getRange(fila, colStock + 1).setValue(nuevo);
+      datos[idx][colStock] = nuevo;
+      let vars = null;
+      try { vars = colVariantes !== -1 ? JSON.parse(datos[idx][colVariantes] || '[]') : null; } catch (e) { vars = null; }
+      quedo = { stock: nuevo, variantes: vars };
+    }
+    out.productos[pid] = quedo;
   });
+  return out;
 }
 
 /**

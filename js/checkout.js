@@ -46,7 +46,7 @@ const CheckoutService = {
           <input type="radio" name="envio" value="${escHtml(envio.id)}" ${sel ? 'checked' : ''}
                  onchange="CheckoutService.seleccionarEnvio(this.value)" />
           <span class="envio-label">${escHtml(envio.nombre)}${envio.descripcion ? `<small>${escHtml(envio.descripcion)}</small>` : ''}</span>
-          <span class="envio-price">${Number(envio.precio) === 0 ? 'GRATIS' : SheetsService.formatPrecioARS(envio.precio)}</span>
+          <span class="envio-price">${escHtml(CartService.textoCostoEnvio(envio))}</span>
         </label>`;
       }).join('');
 
@@ -187,8 +187,8 @@ const CheckoutService = {
       <div class="cart__totals-row"><span>Productos</span><span>${f(subtotal)}</span></div>
       ${cupon > 0 ? `<div class="cart__totals-row cart__totals-row--discount"><span>Cupón ${escHtml(CartService.promoCode || '')}</span><span>−${f(cupon)}</span></div>` : ''}
       ${autos.map(l => `<div class="cart__totals-row cart__totals-row--discount"><span>${escHtml(l.label)}</span><span>−${f(l.monto)}</span></div>`).join('')}
-      <div class="cart__totals-row"><span>Envío</span><span>${envio ? (costoEnvio === 0 ? 'GRATIS' : f(costoEnvio)) : 'Elegí una opción'}</span></div>
-      <div class="cart__totals-row cart__totals-row--total"><span>Total</span><span>${f(total)}</span></div>
+      <div class="cart__totals-row"><span>Envío</span><span>${envio ? escHtml(CartService.textoCostoEnvio(envio)) : 'Elegí una opción'}</span></div>
+      <div class="cart__totals-row cart__totals-row--total"><span>Total${envio && CartService.textoCostoEnvio(envio) === 'Precio a coordinar' ? ' <small>(+ envío)</small>' : ''}</span><span>${f(total)}</span></div>
     `;
   },
 

@@ -76,6 +76,11 @@ const CONFIG = {
   // ==========================================
   // OPCIONES DE ENVÍO
   // ==========================================
+  // Los envíos con precio muestran "Precio a coordinar" y no se suman al total:
+  // el costo se arregla por WhatsApp. Poné false para volver a mostrar el precio.
+  // (Si algún día se activa Mercado Pago, ponelo en false: MP cobra el envío.)
+  enviosPrecioACoordinar: true,
+
   envios: [
     {
       id: "retiro",
