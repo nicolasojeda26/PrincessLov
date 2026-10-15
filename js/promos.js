@@ -113,11 +113,16 @@ const PromoEngine = {
     const url = this.endpoint();
     if (!url || typeof fetch === 'undefined') return;
     try {
-      const u = new URL(url);
-      u.searchParams.set('action', 'config');
-      const res = await fetch(u, { method: 'GET', headers: { 'Accept': 'application/json' } });
-      if (!res.ok) return;
-      const data = await res.json();
+      let data;
+      if (typeof SheetsService !== 'undefined' && SheetsService.configRemota) {
+        data = await SheetsService.configRemota(); // misma llamada que usa la tienda
+      } else {
+        const u = new URL(url);
+        u.searchParams.set('action', 'config');
+        const res = await fetch(u, { method: 'GET', headers: { 'Accept': 'application/json' } });
+        if (!res.ok) return;
+        data = await res.json();
+      }
       const raw = data && data.promos;
       if (!raw) return;
       let parsed = raw;

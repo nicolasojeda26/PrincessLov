@@ -127,11 +127,16 @@ const ClubPrince = {
       const url = localPrev ? null : this.endpoint();
       if (url && typeof fetch !== 'undefined') {
         try {
-          const u = new URL(url);
-          u.searchParams.set('action', 'config');
-          const res = await fetch(u, { method: 'GET', headers: { 'Accept': 'application/json' } });
-          if (res.ok) {
-            const data = await res.json();
+          let data = null;
+          if (typeof SheetsService !== 'undefined' && SheetsService.configRemota) {
+            data = await SheetsService.configRemota(); // misma llamada que usa la tienda
+          } else {
+            const u = new URL(url);
+            u.searchParams.set('action', 'config');
+            const res = await fetch(u, { method: 'GET', headers: { 'Accept': 'application/json' } });
+            if (res.ok) data = await res.json();
+          }
+          if (data) {
             const raw = data && data.clubPrince_boxes;
             const arr = typeof raw === 'string' ? JSON.parse(raw) : raw;
             if (Array.isArray(arr) && arr.length) {

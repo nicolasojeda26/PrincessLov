@@ -92,11 +92,13 @@ const SheetsService = {
       return this.productos;
     }
 
+    this._ultimoRawProductos = null; // solo se guarda en el navegador lo que vino de la planilla
     // 1. Intentar Google Apps Script (bidireccional, con todos los campos nuevos)
     if (this.appsScriptUrl) {
       try {
         const data = await this.fetchFromAppsScript('read', { sheet: 'productos' });
         if (data && data.length > 0) {
+          this._ultimoRawProductos = data;
           this.productos = this.mapAppsScriptProducts(data);
           this.setCache(this.productos);
           return this.productos;
@@ -259,6 +261,51 @@ const SheetsService = {
     const result = await response.json();
     if (result.error) throw new Error(result.error);
     return result;
+  },
+
+  // ==================== CARGA RÁPIDA ====================
+  // Antes la tienda esperaba ~8 s: action=config se pedía 3 veces a la vez
+  // (app, promos y Club Prince) y Apps Script las atiende de a una; después
+  // recién pedía el dólar. Ahora: una sola config por visita, todo en paralelo,
+  // y la última versión queda guardada en el navegador para mostrar la tienda
+  // al instante en la próxima visita (se actualiza sola en segundo plano).
+  CACHE_LOCAL_KEY: 'pl_cache_tienda_v1',
+  CACHE_LOCAL_MAX: 24 * 60 * 60 * 1000, // 24 h
+  _configPromise: null,
+  _ultimoRawProductos: null,
+
+  /** action=config una sola vez por carga de página (la comparten app, promos y Club Prince) */
+  configRemota() {
+    if (!this.appsScriptUrl) this.appsScriptUrl = appsScriptConfigurado();
+    if (!this.appsScriptUrl) return Promise.resolve(null);
+    if (!this._configPromise) {
+      this._configPromise = this.fetchFromAppsScript('config').catch(e => { this._configPromise = null; throw e; });
+    }
+    return this._configPromise;
+  },
+
+  leerCacheLocal() {
+    try {
+      const c = JSON.parse(localStorage.getItem(this.CACHE_LOCAL_KEY) || 'null');
+      if (c && c.t && Date.now() - c.t < this.CACHE_LOCAL_MAX && Array.isArray(c.productos) && c.productos.length) return c;
+    } catch (e) { /* sin storage: carga normal */ }
+    return null;
+  },
+
+  guardarCacheLocal(config) {
+    if (!Array.isArray(this._ultimoRawProductos) || !this._ultimoRawProductos.length) return;
+    try {
+      localStorage.setItem(this.CACHE_LOCAL_KEY, JSON.stringify({
+        t: Date.now(), config: config || null, productos: this._ultimoRawProductos, dolar: this.cotizacionDolar || null,
+      }));
+    } catch (e) { /* storage lleno o bloqueado: no pasa nada */ }
+  },
+
+  /** Pinta con lo guardado de la visita anterior */
+  async aplicarCacheLocal(c) {
+    if (c.config) await this.cargarConfigPublica({ remote: c.config });
+    this.productos = this.mapAppsScriptProducts(c.productos);
+    if (c.dolar > 0) this.cotizacionDolar = c.dolar;
   },
 
   setCache(data) {
@@ -649,7 +696,7 @@ const SheetsService = {
       local = { categorias: has('pl_admin_categorias'), contenido: has('pl_admin_contenido'), envios: has('pl_admin_envios') };
     }
     try {
-      const remote = await this.fetchFromAppsScript('config');
+      const remote = opts.remote !== undefined ? opts.remote : await this.configRemota();
       if (!remote || typeof remote !== 'object') return null;
       const parse = (v) => { if (typeof v !== 'string') return v; try { return JSON.parse(v); } catch { return null; } };
       const cats = parse(remote.categorias);

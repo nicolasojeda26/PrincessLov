@@ -11,14 +11,44 @@ const App = {
   async init() {
     try {
       this.applyCustomConfig?.();
-      // Config publicada desde el admin (textos, categorías, envíos, WhatsApp)
-      // y productos en paralelo para que la carga sea más rápida.
-      await Promise.all([
-        SheetsService.cargarConfigPublica({ preview: this.esPreview() }),
-        SheetsService.cargarProductos(),
+      const preview = this.esPreview();
+      // Todo lo que viene de Google se pide a la vez (antes: config ×3 y
+      // productos, y recién al final el dólar → ~8 s con la pantalla de carga).
+      const frescos = Promise.all([
+        SheetsService.configRemota().catch(() => null),
+        SheetsService.cargarProductos(true),
+        CONFIG.cotizacion.autoCotizacion ? SheetsService.obtenerCotizacion() : null,
       ]);
-      await SheetsService.obtenerCotizacion();
 
+      // Visita repetida: se muestra al instante lo guardado la vez anterior
+      // y se actualiza en segundo plano cuando llega lo nuevo.
+      const cache = preview ? null : SheetsService.leerCacheLocal();
+      if (cache) {
+        try {
+          await SheetsService.aplicarCacheLocal(cache);
+          await this._arrancar();
+          this._actualizarEnSegundoPlano(frescos, cache);
+          return;
+        } catch (e) {
+          console.warn('[App] cache local inválido, carga normal:', e.message);
+        }
+      }
+
+      const [config] = await frescos;
+      await SheetsService.cargarConfigPublica({ preview, remote: config });
+      SheetsService.reasignarCategorias();
+      await SheetsService.obtenerCotizacion();
+      if (!preview) SheetsService.guardarCacheLocal(config);
+      await this._arrancar();
+    } catch (error) {
+      console.error('[App] Error inicializando:', error);
+      this.hideLoading();
+    }
+  },
+
+  /** Primer pintado de la tienda (una sola vez por visita) */
+  async _arrancar() {
+    try {
       CartService.init();
       CartService.onChange(() => this.actualizarUI());
       CartService.sincronizarStock();
@@ -60,6 +90,48 @@ const App = {
       console.error('[App] Error inicializando:', error);
       this.hideLoading();
     }
+  },
+
+  /** Llega lo nuevo de la planilla: se guarda y, si algo cambió, se repinta */
+  async _actualizarEnSegundoPlano(frescos, cache) {
+    try {
+      const [config] = await frescos;
+      if (!Array.isArray(SheetsService._ultimoRawProductos) || !SheetsService._ultimoRawProductos.length) {
+        // La planilla no respondió: se sigue con lo guardado (no con el CSV de ejemplo)
+        await SheetsService.aplicarCacheLocal(cache);
+        return;
+      }
+      const firma = (cfg, prods, dolar) => JSON.stringify([cfg, prods, dolar]);
+      const antes = firma(cache.config, cache.productos, cache.dolar);
+      const configFinal = config || cache.config;
+      if (configFinal) await SheetsService.cargarConfigPublica({ remote: configFinal });
+      SheetsService.reasignarCategorias();
+      SheetsService.guardarCacheLocal(configFinal);
+      if (antes === firma(configFinal, SheetsService._ultimoRawProductos, SheetsService.cotizacionDolar || null)) return;
+      this._repintar();
+    } catch (e) {
+      console.warn('[App] actualización en segundo plano falló:', e.message);
+    }
+  },
+
+  _repintar() {
+    this.renderContenidoCustom?.();
+    if (typeof ClubPrince !== 'undefined') ClubPrince.renderBoxesFromConfig?.();
+    this.renderDolarTicker();
+    this.renderSidebarFilters();
+    this.renderCatBar();
+    this.renderMegaMenu?.();
+    this.renderShowcase?.();
+    this._validarFiltros();
+    this._applyFilterUI();
+    this.aplicarFiltros();
+    this.renderStockCounts();
+    CartService.sincronizarStock();
+    this.renderCartSidebar();
+    this.actualizarUI();
+    this.setupWhatsAppLink();
+    this.renderFlashBanner();
+    if (typeof PromoEngine !== 'undefined') PromoEngine.apply();
   },
 
   /* ---------- DÓLAR TICKER ---------- */
