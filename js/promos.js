@@ -70,6 +70,7 @@ const PromoEngine = {
         descripcion: c.descripcion || '',
         productoIds: arr(c.productoIds).map(String),
         precioUSD: Number(c.precioUSD) || 0,
+        precioARS: Math.max(0, Math.round(Number(c.precioARS) || 0)),
         activo: c.activo !== false,
       })),
       dosPorUno: arr(cfg?.dosPorUno).map(d => ({
@@ -257,16 +258,30 @@ const PromoEngine = {
     combos.forEach(c => {
       const presente = c.productoIds.every(rid => (items || []).some(it => String(it.id) === String(rid) && (it.cantidad || 1) > 0));
       if (!presente) return;
-      const miembros = (items || []).filter(it => c.productoIds.includes(String(it.id)));
-      const sumaARS = miembros.reduce((s, it) => s + (it.precioARS || 0) * (it.cantidad || 1), 0);
-      const precioComboARS = this.precioBaseARSNull(c.precioUSD);
-      if (c.precioUSD > 0) {
-        if (precioComboARS > 0 && precioComboARS < sumaARS) total += sumaARS - precioComboARS;
+      // Cuántos combos completos hay (antes, con 2 de cada uno se cobraba un solo combo por las 4 prendas)
+      const ids = [...new Set(c.productoIds.map(String))];
+      const cant = id => (items || []).filter(it => String(it.id) === id).reduce((s, it) => s + (it.cantidad || 1), 0);
+      const sets = Math.min(...ids.map(cant));
+      if (!(sets > 0)) return;
+      // Una unidad de cada producto del combo (si hay varias variantes, la más cara)
+      const unidad = id => Math.max(0, ...(items || []).filter(it => String(it.id) === id).map(it => it.precioARS || 0));
+      const sumaSet = ids.reduce((s, id) => s + unidad(id), 0);
+      // Precio fijo en pesos (oct/2026) o, en combos viejos, USD x dólar x margen
+      const precioComboARS = this.precioCombo(c);
+      if (precioComboARS > 0) {
+        if (precioComboARS < sumaSet) total += (sumaSet - precioComboARS) * sets;
       } else {
-        total += sumaARS * 0.10; // sin precio definido => 10% off
+        total += sumaSet * 0.10 * sets; // sin precio definido => 10% off
       }
     });
     return Math.round(total);
+  },
+
+  /** Precio final del combo en pesos (0 = sin precio fijo: 10% off) */
+  precioCombo(c) {
+    if (!c) return 0;
+    if (Number(c.precioARS) > 0) return Math.round(Number(c.precioARS));
+    return Number(c.precioUSD) > 0 ? this.precioBaseARSNull(c.precioUSD) : 0;
   },
 
   precioBaseARSNull(usd) {

@@ -145,6 +145,9 @@ const SheetsService = {
         precioARSManual: p.PrecioARSManual ? parseFloat(p.PrecioARSManual) : null,
         precioOferta: p.PrecioOferta ? parseFloat(p.PrecioOferta) : null,
         margenPersonalizado: p.MargenPersonalizado ? parseFloat(p.MargenPersonalizado) / 100 : null,
+        gananciaPct: p.GananciaPct !== undefined && p.GananciaPct !== '' && p.GananciaPct !== null && !isNaN(parseFloat(p.GananciaPct)) ? parseFloat(p.GananciaPct) : null,
+        costoMoneda: String(p.CostoMoneda || '').toUpperCase() === 'ARS' ? 'ARS' : 'USD',
+        costoARS: parseFloat(p.CostoARS) || 0,
         imagen: p.Imagen || CONFIG.imagenes.placeholder,
         stock: parseInt(p.Stock) || 0,
         stockMin: parseInt(p.StockMin) || 5,
@@ -398,12 +401,45 @@ const SheetsService = {
     if (!this.cotizacionDolar) this.cotizacionDolar = CONFIG.cotizacion.cotizacionManual;
     
     // Si el producto tiene precio ARS manual fijo, usar ese
+    // (los productos con costo en pesos guardan acá su precio ya calculado)
     if (producto?.precioARSManual) return producto.precioARSManual;
-    
-    // Calcular con margen (personalizado o global)
-    const margen = producto?.margenPersonalizado ?? CONFIG.cotizacion.margenGanancia;
-    const precio = precioUSD * this.cotizacionDolar * margen;
-    return Math.round(precio);
+
+    // Calcular con la ganancia del producto (o la global) y redondear
+    const precio = precioUSD * this.cotizacionDolar * this.factorGanancia(producto);
+    return this.redondearPrecio(precio);
+  },
+
+  /**
+   * Multiplicador de ganancia de un producto:
+   * - gananciaPct (nuevo, oct/2026): 30 → ×1,30
+   * - margenPersonalizado (viejo): se usa tal cual estaba
+   * - si no tiene ninguno: el margen global (1,30 = 30%)
+   */
+  factorGanancia(producto) {
+    const g = producto?.gananciaPct;
+    if (g !== null && g !== undefined && g !== '' && Number(g) >= 0) return 1 + Number(g) / 100;
+    return producto?.margenPersonalizado ?? CONFIG.cotizacion.margenGanancia;
+  },
+
+  /** Redondea hacia arriba al múltiplo configurado (CONFIG.cotizacion.redondeo; 0 = sin redondeo) */
+  redondearPrecio(n) {
+    const v = Math.round(Number(n) || 0);
+    if (v <= 0) return 0;
+    const paso = Number(CONFIG?.cotizacion?.redondeo) || 0;
+    return paso > 0 ? Math.ceil(v / paso) * paso : v;
+  },
+
+  /**
+   * Precio de venta a partir del costo, la moneda y el % de ganancia.
+   * Lo usa el admin para mostrar y guardar el precio de los productos con costo en pesos.
+   */
+  precioDesdeCosto({ moneda, costo, gananciaPct }) {
+    const c = Number(costo) || 0;
+    if (c <= 0) return 0;
+    const factor = this.factorGanancia({ gananciaPct });
+    if (moneda === 'ARS') return this.redondearPrecio(c * factor);
+    if (!this.cotizacionDolar) this.cotizacionDolar = CONFIG.cotizacion.cotizacionManual;
+    return this.redondearPrecio(c * this.cotizacionDolar * factor);
   },
 
   formatPrecioARS(precio) {
@@ -615,6 +651,9 @@ const SheetsService = {
       precioARSManual: p.precioARSManual,
       precioOferta: p.precioOferta,
       margenPersonalizado: p.margenPersonalizado ? p.margenPersonalizado * 100 : null,
+      gananciaPct: p.gananciaPct ?? null,
+      costoMoneda: p.costoMoneda === 'ARS' ? 'ARS' : 'USD',
+      costoARS: Number(p.costoARS) || 0,
       imagen: p.imagen,
       stock: p.stock,
       stockMin: p.stockMin || 5,
@@ -723,6 +762,7 @@ const SheetsService = {
       if (remote.nombre) CONFIG.negocio.nombre = String(remote.nombre);
       if (Number(remote.margen) > 0) CONFIG.cotizacion.margenGanancia = Number(remote.margen);
       if (Number(remote.dolarManual) > 0) CONFIG.cotizacion.cotizacionManual = Number(remote.dolarManual);
+      if (remote.redondeo !== undefined && remote.redondeo !== '' && Number(remote.redondeo) >= 0) CONFIG.cotizacion.redondeo = Number(remote.redondeo);
       return remote;
     } catch (e) {
       console.warn('[Sheets] config pública no disponible:', e.message);

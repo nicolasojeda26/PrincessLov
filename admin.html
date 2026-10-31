@@ -111,6 +111,9 @@
             <button class="quick-action" onclick="AdminApp.navigate('orders')">
               <span class="quick-action__num" id="qa-pendientes">0</span><span class="quick-action__label">pedidos por confirmar</span>
             </button>
+            <button class="quick-action" onclick="AdminApp.navigate('orders'); setTimeout(()=>AdminOrders.openForm(), 150)">
+              <span class="quick-action__icon">💬</span><span class="quick-action__label">Registrar venta</span>
+            </button>
             <button class="quick-action" onclick="AdminApp.navigate('products'); setTimeout(()=>AdminProducts.openForm(), 150)">
               <span class="quick-action__icon">➕</span><span class="quick-action__label">Cargar producto</span>
             </button>
@@ -158,6 +161,7 @@
           <div class="chart-card">
             <h3>Pedidos por estado</h3>
             <canvas id="chart-estados"></canvas>
+            <div class="ventas-canal" id="ventas-por-canal"></div>
           </div>
         </div>
 
@@ -200,8 +204,8 @@
                 <th>Imagen</th>
                 <th>Nombre</th>
                 <th>Categoría</th>
-                <th>Precio USD</th>
-                <th>Precio ARS</th>
+                <th>Costo</th>
+                <th>Precio venta</th>
                 <th>Stock</th>
                 <th>Estado</th>
                 <th>Acciones</th>
@@ -228,9 +232,12 @@
             <select id="orders-filter-status" onchange="AdminOrders.filterByStatus(this.value)">
               <option value="">Todos los estados</option>
             </select>
+            <select id="orders-filter-origen" onchange="AdminOrders.filterByOrigen(this.value)" aria-label="Filtrar por canal">
+              <option value="">Todos los canales</option>
+            </select>
           </div>
           <div class="toolbar-right">
-            <button class="btn btn-primary" onclick="AdminOrders.openForm()">+ Nuevo Pedido</button>
+            <button class="btn btn-primary" onclick="AdminOrders.openForm()">💬 Registrar venta</button>
             <button class="btn btn-secondary" onclick="AdminOrders.exportPDF()">📄 Exportar PDF</button>
             <button class="btn btn-secondary" onclick="AdminOrders.exportCSV()">📤 Exportar CSV</button>
           </div>
@@ -522,8 +529,19 @@
                 <input type="number" id="set-dolar-manual" placeholder="1200">
               </div>
               <div class="form-group">
-                <label>Margen de ganancia (ej: 1.30 = 30%)</label>
-                <input type="number" step="0.01" id="set-margen" placeholder="1.30">
+                <label for="set-margen">Ganancia por defecto (%)</label>
+                <input type="number" step="1" min="0" max="400" id="set-margen" placeholder="30">
+                <small class="form-hint">Se usa en los productos que no tienen su propio %. 30 = el precio es el costo + 30%.</small>
+              </div>
+              <div class="form-group">
+                <label for="set-redondeo">Redondear los precios calculados</label>
+                <select id="set-redondeo">
+                  <option value="0">Sin redondeo</option>
+                  <option value="100">Hacia arriba, de a $100 (15.873 → 15.900)</option>
+                  <option value="500">Hacia arriba, de a $500 (15.873 → 16.000)</option>
+                  <option value="1000">Hacia arriba, de a $1.000 (15.873 → 16.000)</option>
+                </select>
+                <small class="form-hint">No toca los precios que escribiste a mano ni los de oferta.</small>
               </div>
             </div>
 
@@ -650,17 +668,32 @@
         <!-- TAB 2: PRECIOS & STOCK -->
         <div class="form-tab-panel" id="tab-precios" role="tabpanel">
           <div class="form-section">
-            <h4>💵 Precios</h4>
+            <h4>💵 Costo y precio de venta</h4>
             <div class="form-grid">
               <div class="form-group">
-                <label for="pf-preciousd">Precio costo USD *</label>
-                <input type="number" step="0.01" min="0" id="pf-preciousd" required>
-                <small class="form-hint">Tu costo base en dólares. El precio ARS se calcula automáticamente (USD × Dólar × Margen)</small>
+                <label for="pf-costo-moneda">¿El costo es en dólares o en pesos?</label>
+                <select id="pf-costo-moneda">
+                  <option value="USD">Dólares (USD)</option>
+                  <option value="ARS">Pesos (ARS)</option>
+                </select>
               </div>
               <div class="form-group">
-                <label for="pf-precio-ars-manual">Precio ARS manual (opcional)</label>
-                <input type="text" inputmode="numeric" autocomplete="off" id="pf-precio-ars-manual" class="input-ars" placeholder="Ej: 16.000 (vacío = automático)">
-                <small class="form-hint">Precio final en pesos. Podés escribirlo con o sin punto: 16000 o 16.000</small>
+                <label for="pf-preciousd" id="pf-costo-label">Lo que te costó (USD) *</label>
+                <input type="text" inputmode="decimal" autocomplete="off" id="pf-preciousd" placeholder="Ej: 12,50">
+                <small class="form-hint" id="pf-costo-hint">Precio de compra de una unidad</small>
+              </div>
+              <div class="form-group">
+                <label for="pf-ganancia">Ganancia %</label>
+                <input type="number" step="1" min="0" max="400" id="pf-ganancia" placeholder="Ej: 30">
+                <small class="form-hint" id="pf-ganancia-hint">Vacío = la ganancia general de Configuración</small>
+              </div>
+            </div>
+            <div class="precio-calculado" id="pf-precio-calculado" aria-live="polite"></div>
+            <div class="form-grid">
+              <div class="form-group">
+                <label for="pf-precio-ars-manual">Precio final a mano (opcional)</label>
+                <input type="text" inputmode="numeric" autocomplete="off" id="pf-precio-ars-manual" class="input-ars" placeholder="Vacío = el calculado">
+                <small class="form-hint">Solo si querés otro precio distinto al calculado. Ej: 16.000</small>
                 <small class="form-hint ars-preview" data-for="pf-precio-ars-manual"></small>
               </div>
               <div class="form-group">
@@ -669,12 +702,35 @@
                 <small class="form-hint">Si completás, se muestra tachado el precio normal y este en destacado</small>
                 <small class="form-hint ars-preview" data-for="pf-precio-oferta"></small>
               </div>
-              <div class="form-group">
-                <label for="pf-margen-personalizado">Margen personalizado %</label>
-                <input type="number" step="1" min="0" max="500" id="pf-margen-personalizado" placeholder="Ej: 30 para 30%">
-                <small class="form-hint">Sobrescribe el margen global solo para este producto</small>
+            </div>
+          </div>
+          <div class="form-section" id="pf-combos-section">
+            <h4>🎁 Combos con este producto</h4>
+            <div id="pf-combos-list"></div>
+            <div class="combo-builder" id="pf-combo-builder" hidden>
+              <div class="form-grid">
+                <div class="form-group form-group--full">
+                  <label>Se vende junto con</label>
+                  <div id="pf-combo-otros"></div>
+                  <button type="button" class="btn btn-sm btn-secondary" onclick="AdminProducts.comboAgregarOtro()">+ Otro producto más</button>
+                </div>
+                <div class="form-group">
+                  <label for="pf-combo-precio">Precio del combo (ARS)</label>
+                  <input type="text" inputmode="numeric" autocomplete="off" id="pf-combo-precio" class="input-ars" placeholder="Ej: 25.000">
+                  <small class="form-hint ars-preview" data-for="pf-combo-precio"></small>
+                </div>
+                <div class="form-group">
+                  <label for="pf-combo-nombre">Nombre del combo</label>
+                  <input type="text" id="pf-combo-nombre" placeholder="Ej: Combo 2 remeras">
+                </div>
+              </div>
+              <div class="combo-resumen" id="pf-combo-resumen"></div>
+              <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+                <button type="button" class="btn btn-sm btn-primary" onclick="AdminProducts.comboGuardar()">💾 Guardar combo</button>
+                <button type="button" class="btn btn-sm btn-secondary" onclick="AdminProducts.comboCerrar()">Cancelar</button>
               </div>
             </div>
+            <button type="button" class="btn btn-sm btn-secondary" id="pf-combo-nuevo" onclick="AdminProducts.comboAbrir()">🎁 Armar combo con este producto</button>
           </div>
           <div class="form-section">
             <h4>📦 Stock & Inventario</h4>
@@ -818,7 +874,7 @@
 <div class="modal-overlay" id="order-modal">
   <div class="modal">
     <div class="modal-header">
-      <h3 id="order-modal-title">Nuevo Pedido</h3>
+      <h3 id="order-modal-title">Registrar venta</h3>
       <button class="btn-close-modal" onclick="AdminOrders.closeForm()">✕</button>
     </div>
     <div class="modal-body">
@@ -826,8 +882,12 @@
         <input type="hidden" id="of-id">
         <div class="form-grid">
           <div class="form-group">
-            <label>Cliente *</label>
-            <input type="text" id="of-cliente" required>
+            <label for="of-origen">¿Por dónde fue la venta?</label>
+            <select id="of-origen"></select>
+          </div>
+          <div class="form-group">
+            <label for="of-cliente">Cliente</label>
+            <input type="text" id="of-cliente" placeholder="Nombre (opcional)">
           </div>
           <div class="form-group">
             <label>Teléfono</label>
@@ -863,8 +923,9 @@
 
         <div class="form-grid" style="margin-top:1rem;">
           <div class="form-group">
-            <label>Costo total (ARS)</label>
+            <label for="of-costo">Costo total (ARS)</label>
             <input type="number" id="of-costo" placeholder="0">
+            <small class="form-hint" id="of-costo-hint">Se calcula solo con el costo de cada producto</small>
           </div>
           <div class="form-group">
             <label>Notas</label>

@@ -19,6 +19,10 @@ const PRODUCTOS = [
     Variantes: JSON.stringify([{ color: 'Rosa', talle: 'M', stock: 1 }, { color: 'Rosa', talle: 'L', stock: 4 }]) },
   { ID: 'p4', Nombre: 'Remera Oferta', Categoria: 'Remeras', PrecioUSD: 25, PrecioOferta: 9000, Stock: 5, Activo: 'TRUE', Variantes: '[]' },
   { ID: 'p5', Nombre: 'Producto Pausado', Categoria: 'Remeras', PrecioUSD: 25, Stock: 5, Activo: 'FALSE', Variantes: '[]' },
+  // Oct/2026: ganancia % propia, redondeo y costo en pesos
+  { ID: 'p6', Nombre: 'Top Ganancia 50', Categoria: 'Tops', PrecioUSD: 10, GananciaPct: 50, Stock: 10, Activo: 'TRUE', Variantes: '[]' },
+  { ID: 'p7', Nombre: 'Top Precio Impar', Categoria: 'Tops', PrecioUSD: 7.77, Stock: 10, Activo: 'TRUE', Variantes: '[]' },
+  { ID: 'p8', Nombre: 'Remera Costo Pesos', Categoria: 'Remeras', PrecioUSD: 0, CostoMoneda: 'ARS', CostoARS: 10000, GananciaPct: 30, PrecioARSManual: 13000, Stock: 10, Activo: 'TRUE', Variantes: '[]' },
 ];
 
 const PROMOS = {
@@ -29,7 +33,9 @@ const PROMOS = {
     { id: 'c3', codigo: 'VENCIDO', tipo: 'percent', valor: 50, activo: false },
   ],
   flashSales: [],
-  combos: [],
+  combos: [
+    { id: 'k1', nombre: 'Top + Remera', productoIds: ['p6', 'p8'], precioARS: 25000, activo: true },
+  ],
   dosPorUno: [],
   preventas: [],
 };
@@ -244,6 +250,37 @@ await test('ningun item de MP tiene precio cero o negativo', async () => {
     items: [{ id: 'p1', cantidad: 2 }], shippingId: 'correo_argentino', promoCode: 'PRINCESS20',
   });
   cotizacionAItemsMP(c).forEach((i) => assert.ok(i.unit_price > 0, `${i.title} = ${i.unit_price}`));
+});
+
+await test('ganancia % del producto: USD 10 x 1000 x 1,5', async () => {
+  const c = await cotizarCarrito({ items: [{ id: 'p6', cantidad: 1 }], shippingId: 'retiro' });
+  assert.equal(c.lineas[0].precioUnitario, 15000);
+});
+
+await test('el precio calculado se redondea hacia arriba a $500', async () => {
+  const c = await cotizarCarrito({ items: [{ id: 'p7', cantidad: 1 }], shippingId: 'retiro' });
+  assert.equal(c.lineas[0].precioUnitario, 10500); // 7.77 * 1000 * 1.3 = 10101
+});
+
+await test('costo en pesos: usa el precio guardado y el costo real', async () => {
+  const c = await cotizarCarrito({ items: [{ id: 'p8', cantidad: 2 }], shippingId: 'retiro' });
+  assert.equal(c.lineas[0].precioUnitario, 13000);
+  assert.equal(c.costoTotal, 20000);
+});
+
+await test('combo con precio en pesos', async () => {
+  const c = await cotizarCarrito({ items: [{ id: 'p6', cantidad: 1 }, { id: 'p8', cantidad: 1 }], shippingId: 'retiro' });
+  assert.equal(c.total, 25000); // 15000 + 13000 = 28000 -> combo 25000
+});
+
+await test('combo: 2 de cada uno son 2 combos (no uno solo)', async () => {
+  const c = await cotizarCarrito({ items: [{ id: 'p6', cantidad: 2 }, { id: 'p8', cantidad: 2 }], shippingId: 'retiro' });
+  assert.equal(c.total, 50000);
+});
+
+await test('combo: un producto extra se cobra aparte', async () => {
+  const c = await cotizarCarrito({ items: [{ id: 'p6', cantidad: 2 }, { id: 'p8', cantidad: 1 }], shippingId: 'retiro' });
+  assert.equal(c.total, 25000 + 15000);
 });
 
 /* ---------- Resultado ---------- */

@@ -31,6 +31,15 @@ const ADMIN_CONFIG = {
     { id: 'cancelado',   label: 'Cancelado',     color: '#EF4444', icon: '❌' },
   ],
 
+  // Por dónde llegó la venta (los pedidos de la web llegan solos con 'web-whatsapp')
+  origenesVenta: [
+    { id: 'whatsapp',     label: 'WhatsApp',          icon: '💬' },
+    { id: 'instagram',    label: 'Instagram',         icon: '📸' },
+    { id: 'local',        label: 'En persona',        icon: '🏬' },
+    { id: 'web-whatsapp', label: 'Web',               icon: '🌐' },
+    { id: 'admin',        label: 'Otro',              icon: '📝' },
+  ],
+
   // Medios de pago
   mediosPago: [
     'Mercado Pago',

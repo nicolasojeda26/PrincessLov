@@ -126,7 +126,11 @@ const AdminData = {
     localStorage.setItem(this.KEYS.orders, JSON.stringify(orders));
   },
 
-  addOrder(order) {
+  /**
+   * @param {Object} opts.stockYaDescontado  true cuando la venta se registra después
+   *   de haber bajado el stock a mano (no se vuelve a descontar).
+   */
+  addOrder(order, opts = {}) {
     const orders = this.getOrders();
     order.id = order.id || this.generateId();
     order.fecha = order.fecha || new Date().toISOString();
@@ -135,11 +139,13 @@ const AdminData = {
     if (!order.total) {
       order.total = order.items.reduce((s, i) => s + ((i.precioUnitario || 0) * i.cantidad), 0);
     }
-    if (order.costoTotal == null) order.costoTotal = 0;
+    if (order.costoTotal == null) order.costoTotal = this.costoPedido(order);
     // El stock se descuenta en cuanto el pedido existe (pendiente o más avanzado);
     // solo un pedido "cancelado" no lo toma.
     order.stockDescontado = false;
-    if (this.ESTADOS_CON_STOCK.includes(order.estado) && order.items.length) {
+    if (opts.stockYaDescontado && this.ESTADOS_CON_STOCK.includes(order.estado) && order.items.length) {
+      order.stockDescontado = true;
+    } else if (this.ESTADOS_CON_STOCK.includes(order.estado) && order.items.length) {
       this._moverStock(order, -1);
       order.stockDescontado = true;
     }
@@ -268,6 +274,37 @@ const AdminData = {
     return Number(p.precioARSManual) || 0;
   },
 
+  /** Dólar que usa el admin para pasar costos USD a pesos */
+  dolarActual() {
+    return (typeof AdminApp !== 'undefined' && AdminApp.dolarRate)
+      || (typeof SheetsService !== 'undefined' && SheetsService.cotizacionDolar)
+      || CONFIG?.cotizacion?.cotizacionManual || 1200;
+  },
+
+  /** Costo de UNA unidad en pesos (costo en pesos, o costo USD × dólar de hoy). 0 si no tiene costo. */
+  costoUnitarioARS(p) {
+    if (!p) return 0;
+    if (p.costoMoneda === 'ARS') return Math.round(Number(p.costoARS) || 0);
+    return Math.round((Number(p.precioUSD) || 0) * this.dolarActual());
+  },
+
+  /** Costo de la mercadería de un pedido, con el costo cargado en cada producto */
+  costoPedido(order) {
+    return Math.round((order?.items || []).reduce((s, i) => s + this.costoUnitarioARS(this.getProduct(i.productoId)) * (Number(i.cantidad) || 0), 0));
+  },
+
+  /** El costo guardado del pedido o, si no tiene (pedidos de la web), el calculado */
+  costoDe(order) {
+    return Number(order?.costoTotal) || this.costoPedido(order);
+  },
+
+  /** Canal de venta legible */
+  origenDe(order) {
+    const lista = (typeof ADMIN_CONFIG !== 'undefined' && ADMIN_CONFIG.origenesVenta) || [];
+    const id = String(order?.origen || '').toLowerCase();
+    return lista.find(o => o.id === id) || lista.find(o => o.id === 'admin') || { id: 'admin', label: 'Otro', icon: '📝' };
+  },
+
   getLowStockProducts(threshold = 5) {
     return this.getProducts().filter(p => p.activo && (p.stock || 0) <= threshold);
   },
@@ -381,7 +418,8 @@ const AdminData = {
     const filtered = periodo ? orders.filter(o => this.isInPeriod(o.fecha, periodo)) : orders;
 
     const ingresos = filtered.reduce((s, o) => s + (o.total || 0), 0);
-    const costos = filtered.reduce((s, o) => s + (o.costoTotal || 0), 0);
+    // Los pedidos de la web llegan sin costo: se calcula con el costo de cada producto
+    const costos = filtered.reduce((s, o) => s + this.costoDe(o), 0);
     const ganancia = ingresos - costos;
     const margen = ingresos > 0 ? (ganancia / ingresos * 100) : 0;
 
@@ -422,14 +460,14 @@ const AdminData = {
           if (!grupos[g]) grupos[g] = { grupo: g, ingresos: 0, costos: 0, ganancia: 0 };
           const share = revenueItems > 0 ? ((it.precioUnitario || 0) * (it.cantidad || 1)) / revenueItems : 1 / orderItems.length;
           grupos[g].ingresos += (o.total || 0) * share;
-          grupos[g].costos += (o.costoTotal || 0) * share;
+          grupos[g].costos += this.costoDe(o) * share;
         });
       } else {
         // Pedido sin items: agrupar en "General"
         const g = 'General';
         if (!grupos[g]) grupos[g] = { grupo: g, ingresos: 0, costos: 0, ganancia: 0 };
         grupos[g].ingresos += (o.total || 0);
-        grupos[g].costos += (o.costoTotal || 0);
+        grupos[g].costos += this.costoDe(o);
       }
     });
     Object.values(grupos).forEach(g => { g.ganancia = g.ingresos - g.costos; });
@@ -451,6 +489,15 @@ const AdminData = {
       }
     });
 
+    // Ventas por canal (WhatsApp, web, Instagram...)
+    const porOrigen = {};
+    filtered.forEach(o => {
+      const og = this.origenDe(o);
+      if (!porOrigen[og.id]) porOrigen[og.id] = { ...og, pedidos: 0, ingresos: 0 };
+      porOrigen[og.id].pedidos += 1;
+      porOrigen[og.id].ingresos += Number(o.total) || 0;
+    });
+
     // Ticket promedio
     const ticketProm = filtered.length > 0 ? ingresos / filtered.length : 0;
 
@@ -467,6 +514,7 @@ const AdminData = {
       topProductos,
       ventasPorDia: Object.values(ventasPorDia),
       gananciaPorGrupo,
+      porOrigen: Object.values(porOrigen).sort((a, b) => b.ingresos - a.ingresos),
     };
   },
 

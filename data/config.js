@@ -59,7 +59,9 @@ const CONFIG = {
     autoCotizacion: true,         // true = busca online, false = usa manual
     cotizacionManual: 1200,       // Valor manual del dólar (solo se usa si autoCotizacion es false)
     margenGanancia: 1.30,         // Markup: 1.30 = 30% de ganancia sobre costo USD
-    // Fórmula: Precio ARS = Precio USD * Dólar * margenGanancia
+    redondeo: 500,                // El precio calculado se redondea hacia arriba a este múltiplo (0 = sin redondeo).
+                                  // Se cambia desde el admin (Configuración). Tiene que coincidir con REDONDEO en Vercel.
+    // Fórmula: Precio ARS = Precio USD * Dólar * margenGanancia (o * (1 + Ganancia % del producto)), redondeado
   },
 
   // ==========================================

@@ -108,7 +108,9 @@ function nuevoCarrito() {
       cotizacionDolar: DOLAR,
       calcularPrecioARS: (usd, producto) => {
         if (producto?.precioARSManual) return Math.round(producto.precioARSManual);
-        return Math.round(usd * DOLAR * (producto?.margenPersonalizado ?? MARGEN));
+        // Igual que SheetsService.calcularPrecioARS: redondeo hacia arriba a $500 (CONFIG.cotizacion.redondeo)
+        const v = Math.round(usd * DOLAR * (producto?.margenPersonalizado ?? MARGEN));
+        return v > 0 ? Math.ceil(v / 500) * 500 : 0;
       },
       obtenerProducto: (id) => productos.find((p) => p.id === id),
       formatPrecioARS: (n) => '$' + n,

@@ -611,7 +611,7 @@ const App = {
     // Price
     const priceRowEl = document.getElementById('product-modal-price-row');
     if (priceRowEl) {
-      const basePrecio = producto.precioARSManual || SheetsService.calcularPrecioARS(producto.precioUSD);
+      const basePrecio = SheetsService.calcularPrecioARS(producto.precioUSD, producto);
       const precioARS = (typeof PromoEngine !== 'undefined' && PromoEngine.precioVistaARS) ? PromoEngine.precioVistaARS(producto) : basePrecio;
       let priceHtml = `<span class="product-modal__price">${SheetsService.formatPrecioARS(precioARS)}</span>`;
       if (precioARS < basePrecio) {
@@ -621,6 +621,14 @@ const App = {
       if (typeof PromoEngine !== 'undefined' && PromoEngine.preventaDeProducto && PromoEngine.preventaDeProducto(producto)) {
         priceHtml += `<br><span class="product-modal__preventa-note">🔖 Preventa: precio especial. Te lo reservamos y lo despachamos en el lanzamiento.</span>`;
       }
+      // Combos: "Llevalo con la Remera Lisa por $25.000"
+      const combos = (typeof PromoEngine !== 'undefined' && PromoEngine.combosDeProducto) ? PromoEngine.combosDeProducto(producto) : [];
+      combos.forEach(c => {
+        const otros = (c.productoIds || []).filter(id => String(id) !== String(producto.id)).map(id => (SheetsService.productos || []).find(x => String(x.id) === String(id))?.nombre).filter(Boolean);
+        if (!otros.length) return;
+        const pc = PromoEngine.precioCombo ? PromoEngine.precioCombo(c) : 0;
+        priceHtml += `<br><span class="product-modal__combo-note">🎁 Combo: llevalo con ${escHtml(otros.join(' + '))} ${pc ? 'por ' + SheetsService.formatPrecioARS(pc) + ' en total' : 'con 10% off'}. El descuento se aplica solo en el carrito.</span>`;
+      });
       priceRowEl.innerHTML = priceHtml;
     }
 
@@ -881,7 +889,7 @@ const App = {
       variantText = ' - ' + [selectedTalle && `Talle: ${selectedTalle}`, selectedColor && `Color: ${selectedColor}`].filter(Boolean).join(', ');
     }
 
-    const precioARS = (typeof PromoEngine !== 'undefined' && PromoEngine.precioVistaARS) ? PromoEngine.precioVistaARS(producto) : (producto.precioARSManual || SheetsService.calcularPrecioARS(producto.precioUSD));
+    const precioARS = (typeof PromoEngine !== 'undefined' && PromoEngine.precioVistaARS) ? PromoEngine.precioVistaARS(producto) : SheetsService.calcularPrecioARS(producto.precioUSD, producto);
     const texto = `¡Hola! Me interesa este producto:\n• ${producto.nombre}${variantText}\nPrecio: ${SheetsService.formatPrecioARS(precioARS)}\n\n¿Está disponible?`;
     CartService.abrirWhatsApp(texto);
     this.closeProductModal();
@@ -1285,7 +1293,7 @@ const App = {
         return;
       }
       resultsEl.innerHTML = results.slice(0, 8).map(p => {
-        const precioARS = (typeof PromoEngine !== 'undefined' && PromoEngine.precioVistaARS) ? PromoEngine.precioVistaARS(p) : SheetsService.calcularPrecioARS(p.precioUSD);
+        const precioARS = (typeof PromoEngine !== 'undefined' && PromoEngine.precioVistaARS) ? PromoEngine.precioVistaARS(p) : SheetsService.calcularPrecioARS(p.precioUSD, p);
         return `
           <button class="search__result" onclick="App.toggleSearch(); App.openProductModal('${escJsAttr(p.id)}');" aria-label="${escHtml(p.nombre)} - ${SheetsService.formatPrecioARS(precioARS)}">
             <img class="search__result-img" src="${escHtml(SheetsService.fotoChica(p.imagen, 200))}" alt="" loading="lazy" onerror="this.onerror=null;this.src='data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2248%22 height=%2264%22><rect width=%2248%22 height=%2264%22 fill=%22%23eedbd8%22/></svg>'">

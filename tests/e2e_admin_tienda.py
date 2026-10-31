@@ -19,7 +19,7 @@ def check(name, cond, extra=""):
 
 # ---------------- Apps Script simulado (mismas reglas que el .gs) ----------------
 DB = {"Productos": [], "Pedidos": [], "Gastos": [], "Config": {}, "ClubPrince_Leads": [], "Arrepentimiento": [], "Newsletter": []}
-PUBLIC_CFG = ['promos', 'clubPrince_boxes', 'contenido', 'categorias', 'envios', 'whatsapp', 'instagram', 'nombre', 'margen', 'dolarManual']
+PUBLIC_CFG = ['promos', 'clubPrince_boxes', 'contenido', 'categorias', 'envios', 'whatsapp', 'instagram', 'nombre', 'margen', 'dolarManual', 'redondeo']
 SHEET = {"productos": "Productos", "pedidos": "Pedidos", "gastos": "Gastos", "clubprince": "ClubPrince_Leads", "arrepentimiento": "Arrepentimiento", "config": "Config"}
 
 def upsert(sheet, row):
@@ -58,7 +58,9 @@ def gas(route, request):
             "Imagen": p.get("imagen", ""), "Stock": p.get("stock", 0), "Activo": p.get("activo") is not False, "Tags": p.get("tags", ""),
             "SKU": p.get("sku", ""), "PrecioARSManual": p.get("precioARSManual") or "", "PrecioOferta": p.get("precioOferta") or "",
             "Galeria": p.get("galeria", "[]"), "Variantes": p.get("variantes", "[]"), "Caracteristicas": p.get("caracteristicas", "{}"),
-            "Destacado": bool(p.get("destacado")), "DescripcionCorta": p.get("descripcionCorta", ""), "StockMin": p.get("stockMin", 5)})
+            "Destacado": bool(p.get("destacado")), "DescripcionCorta": p.get("descripcionCorta", ""), "StockMin": p.get("stockMin", 5),
+            "MargenPersonalizado": p.get("margenPersonalizado") or "", "GananciaPct": "" if p.get("gananciaPct") is None else p.get("gananciaPct"),
+            "CostoMoneda": "ARS" if p.get("costoMoneda") == "ARS" else "USD", "CostoARS": p.get("costoARS") or ""})
     elif a == "delete_product":
         DB["Productos"] = [r for r in DB["Productos"] if str(r["ID"]) != str(data["id"])]
     elif a == "create_order":

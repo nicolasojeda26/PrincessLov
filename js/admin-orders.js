@@ -5,6 +5,7 @@
 const AdminOrders = {
   searchQuery: '',
   filterStatus: '',
+  filterOrigen: '',
 
   esc(s) { return escHtml(s); },
 
@@ -18,6 +19,15 @@ const AdminOrders = {
     const ofEstado = document.getElementById('of-estado');
     const ofPago = document.getElementById('of-pago');
     const ofEnvio = document.getElementById('of-envio');
+    const ofOrigen = document.getElementById('of-origen');
+    const filtroOrigen = document.getElementById('orders-filter-origen');
+    const origenes = ADMIN_CONFIG.origenesVenta || [];
+    if (ofOrigen) ofOrigen.innerHTML = origenes.map(o => `<option value="${o.id}">${o.icon} ${o.label}</option>`).join('');
+    if (filtroOrigen) {
+      const v = filtroOrigen.value;
+      filtroOrigen.innerHTML = '<option value="">Todos los canales</option>' + origenes.map(o => `<option value="${o.id}">${o.icon} ${o.label}</option>`).join('');
+      filtroOrigen.value = v;
+    }
 
     if (statusSelect) {
       statusSelect.innerHTML = '<option value="">Todos los estados</option>';
@@ -65,6 +75,10 @@ const AdminOrders = {
       orders = orders.filter(o => o.estado === this.filterStatus);
     }
 
+    if (this.filterOrigen) {
+      orders = orders.filter(o => AdminData.origenDe(o).id === this.filterOrigen);
+    }
+
     return orders.sort((a, b) => new Date(b.fecha || 0) - new Date(a.fecha || 0));
   },
 
@@ -97,7 +111,7 @@ const AdminOrders = {
             <div>
               <strong style="font-size:1rem;">${this.esc(o.cliente || 'Sin cliente')}</strong>
               <span style="font-size:0.8rem; color:var(--texto-secundario); margin-left:0.5rem;">#${this.esc(String(o.id || '').startsWith('PL-') ? o.id : String(o.id || '').slice(-6).toUpperCase())}</span>
-              ${o.origen === 'web-whatsapp' ? '<span class="order-origin">🌐 Web</span>' : ''}
+              <span class="order-origin">${AdminData.origenDe(o).icon} ${this.esc(AdminData.origenDe(o).label)}</span>
             </div>
             <span class="badge" style="background:${estado.color}; color:white;">${estado.icon} ${estado.label}</span>
           </div>
@@ -130,7 +144,16 @@ const AdminOrders = {
     this.renderList();
   },
 
-  openForm(id) {
+  filterByOrigen(origen) {
+    this.filterOrigen = origen;
+    this.renderList();
+  },
+
+  /**
+   * @param {string} id     pedido a editar (vacío = venta nueva)
+   * @param {Object} pre    datos para una venta nueva: { productoId, variante }
+   */
+  openForm(id, pre = {}) {
     this.populateFilters();
     const modal = document.getElementById('order-modal');
     const title = document.getElementById('order-modal-title');
@@ -148,18 +171,29 @@ const AdminOrders = {
       document.getElementById('of-pago').value = o.medioPago || '';
       document.getElementById('of-envio').value = o.metodoEnvio || '';
       document.getElementById('of-direccion').value = o.direccion || '';
-      document.getElementById('of-costo').value = o.costoTotal || 0;
+      document.getElementById('of-origen').value = AdminData.origenDe(o).id;
+      // Los pedidos de la web llegan sin costo: se sugiere el calculado
+      const costoEl = document.getElementById('of-costo');
+      costoEl.value = Number(o.costoTotal) || AdminData.costoPedido(o) || 0;
+      costoEl.dataset.auto = Number(o.costoTotal) ? '' : costoEl.value;
       document.getElementById('of-notas').value = o.notas || '';
 
       container.innerHTML = '';
       (o.items || []).forEach(item => this.addItemRow(item));
     } else {
-      title.textContent = 'Nuevo Pedido';
+      title.textContent = 'Registrar venta';
       document.getElementById('order-form').reset();
       document.getElementById('of-id').value = '';
-      document.getElementById('of-estado').value = 'pendiente';
+      // Venta cargada a mano (WhatsApp, Instagram, en persona): ya está hecha
+      document.getElementById('of-estado').value = 'confirmado';
+      document.getElementById('of-origen').value = pre.origen || 'whatsapp';
+      const costoEl = document.getElementById('of-costo');
+      costoEl.value = '';
+      costoEl.dataset.auto = '';
       container.innerHTML = '';
-      this.addItemRow();
+      const prod = pre.productoId ? AdminData.getProduct(pre.productoId) : null;
+      this.addItemRow(prod ? { productoId: prod.id, cantidad: 1, precioUnitario: AdminData.precioVentaARS(prod), variante: pre.variante || '' } : undefined);
+      this.recalcularCosto();
     }
 
     modal.classList.add('open');
@@ -188,7 +222,7 @@ const AdminOrders = {
         </select>
       </div>
       <div class="form-group" style="margin-bottom:0;">
-        <input type="number" class="order-item-cant" min="1" value="${item ? item.cantidad : 1}" placeholder="Cant." required>
+        <input type="number" class="order-item-cant" min="1" value="${item ? item.cantidad : 1}" placeholder="Cant." required oninput="AdminOrders.recalcularCosto()">
       </div>
       <div class="form-group" style="margin-bottom:0;">
         <input type="number" class="order-item-precio" step="0.01" value="${item ? Number(item.precioUnitario) || '' : ''}" placeholder="Precio unit. (ARS)">
@@ -197,7 +231,7 @@ const AdminOrders = {
       <div class="form-group order-item-variante-box" style="margin-bottom:0;">
         <select class="order-item-variante" aria-label="Talle / color"></select>
       </div>
-      <button type="button" class="btn btn-sm btn-danger" onclick="this.parentElement.remove()">✕</button>
+      <button type="button" class="btn btn-sm btn-danger" onclick="this.parentElement.remove(); AdminOrders.recalcularCosto()">✕</button>
     `;
     container.appendChild(row);
     this.llenarVariantes(row, item?.variante || '');
@@ -236,6 +270,26 @@ const AdminOrders = {
       this.llenarVariantes(row, '');
       const nomInput = row.querySelector('.order-item-nombre'); if (nomInput) nomInput.value = '';
     }
+    this.recalcularCosto();
+  },
+
+  /** Costo del pedido con el costo de cada producto (si no lo escribieron a mano) */
+  recalcularCosto() {
+    const el = document.getElementById('of-costo');
+    const hint = document.getElementById('of-costo-hint');
+    if (!el) return;
+    let total = 0, sinCosto = 0;
+    document.querySelectorAll('#order-items-container .order-item-row').forEach(row => {
+      const p = AdminData.getProduct(row.querySelector('.order-item-product')?.value);
+      if (!p) return;
+      const c = AdminData.costoUnitarioARS(p);
+      if (!c) sinCosto++;
+      total += c * (parseInt(row.querySelector('.order-item-cant')?.value) || 0);
+    });
+    total = Math.round(total);
+    const manual = el.value !== '' && el.value !== el.dataset.auto;
+    if (!manual) { el.value = total || ''; el.dataset.auto = el.value; }
+    if (hint) hint.textContent = manual ? 'Lo escribiste a mano' : (sinCosto ? `Calculado (hay ${sinCosto} producto${sinCosto > 1 ? 's' : ''} sin costo cargado)` : 'Calculado con el costo de cada producto');
   },
 
   save(event) {
@@ -262,8 +316,11 @@ const AdminOrders = {
     const itemsIguales = previo && JSON.stringify((previo.items || []).map(i => [String(i.productoId), i.cantidad, Number(i.precioUnitario)])) === JSON.stringify(items.map(i => [String(i.productoId), i.cantidad, Number(i.precioUnitario)]));
     const total = itemsIguales ? (Number(previo.total) || sumaItems) : sumaItems;
 
+    if (!items.length) { AdminApp.toast('Agregá al menos un producto', 'error'); return; }
+
     const data = {
-      cliente: document.getElementById('of-cliente').value.trim(),
+      cliente: document.getElementById('of-cliente').value.trim() || ('Venta por ' + AdminData.origenDe({ origen: document.getElementById('of-origen').value }).label),
+      origen: document.getElementById('of-origen').value || 'admin',
       telefono: document.getElementById('of-telefono').value.trim(),
       email: document.getElementById('of-email').value.trim(),
       estado: document.getElementById('of-estado').value,
@@ -281,7 +338,7 @@ const AdminOrders = {
       AdminApp.toast('Pedido actualizado');
     } else {
       AdminData.addOrder(data);
-      AdminApp.toast('Pedido creado');
+      AdminApp.toast('✅ Venta registrada y stock descontado');
     }
 
     this.closeForm();

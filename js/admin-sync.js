@@ -182,6 +182,7 @@ const AdminSync = {
       Estado: o.estado || 'pendiente', MedioPago: o.medioPago || '', MetodoEnvio: o.metodoEnvio || '',
       Total: Number(o.total) || 0, CostoTotal: Number(o.costoTotal) || 0, Notas: o.notas || '',
       Items: JSON.stringify(o.items || []), StockDescontado: o.stockDescontado ? 'si' : 'no',
+      Origen: o.origen || 'admin',
     };
   },
 
@@ -218,7 +219,7 @@ const AdminSync = {
       const idsPed = new Set(pedRemotos.map(o => o.id));
       const pedLocales = AdminData.getOrders().filter(o => !idsPed.has(String(o.id)));
       for (const o of pedLocales) {
-        await this.post('create_order', { order: { ...o, origen: 'admin' } });
+        await this.post('create_order', { order: { ...o, origen: o.origen || 'admin' } });
         await this.post('update_order', { id: o.id, updates: this.pedidoParaHoja(o) });
       }
       AdminData.saveOrders([...pedRemotos, ...pedLocales]);
@@ -257,6 +258,12 @@ const AdminSync = {
         if (cont && typeof cont === 'object') AdminData.saveContenido(cont);
         const promos = parse(cfg.promos);
         if (promos && typeof promos === 'object') localStorage.setItem(AdminData.KEYS.promos, JSON.stringify(promos));
+        // Ganancia general y redondeo: los mismos que usa la tienda
+        const st = AdminData.getSettings();
+        let cambio = false;
+        if (Number(cfg.margen) > 0) { CONFIG.cotizacion.margenGanancia = Number(cfg.margen); st.margen = Number(cfg.margen); cambio = true; }
+        if (cfg.redondeo !== undefined && cfg.redondeo !== '' && Number(cfg.redondeo) >= 0) { CONFIG.cotizacion.redondeo = Number(cfg.redondeo); st.redondeo = Number(cfg.redondeo); cambio = true; }
+        if (cambio) AdminData.saveSettings(st);
         const envios = parse(cfg.envios);
         if (Array.isArray(envios) && envios.length) { localStorage.setItem('pl_admin_envios', JSON.stringify(envios)); CONFIG.envios = envios; }
       } finally { this._silencio = false; }
@@ -309,7 +316,7 @@ const AdminSync = {
     });
     wrap('addOrder', (o) => {
       if (!o) return;
-      self.post('create_order', { order: { ...o, origen: 'admin' } })
+      self.post('create_order', { order: { ...o, origen: o.origen || 'admin' } })
         .then(() => self.publicar('update_order', { id: o.id, updates: self.pedidoParaHoja(o) }, 'el pedido'))
         .catch(e => AdminApp.toast('⚠️ El pedido no se guardó en la planilla: ' + e.message, 'error'));
     });

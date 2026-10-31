@@ -18,7 +18,9 @@ const AdminSettings = {
     set('set-email', settings.email || neg.email || '');
     set('set-instagram', settings.instagram || neg.instagram || '');
     set('set-dolar-manual', settings.dolarManual || CONFIG?.cotizacion?.cotizacionManual || '');
-    set('set-margen', settings.margen || CONFIG?.cotizacion?.margenGanancia || '');
+    // El margen se guarda como multiplicador (1.30) pero se muestra como % (30)
+    set('set-margen', this.margenAPct(settings.margen || CONFIG?.cotizacion?.margenGanancia));
+    set('set-redondeo', String(this.redondeoActual(settings)));
 
     // Gastos fijos
     const gf = settings.gastosFijos || {};
@@ -50,9 +52,12 @@ const AdminSettings = {
           ['set-nombre', 'set-whatsapp', 'set-email', 'set-instagram', 'set-dolar-manual', 'set-margen'].forEach(id => {
             const el = document.getElementById(id);
             const key = { 'set-nombre': 'nombre', 'set-whatsapp': 'whatsapp', 'set-email': 'email', 'set-instagram': 'instagram', 'set-dolar-manual': 'dolarManual', 'set-margen': 'margen' }[id];
-            const val = AdminData.getSettings()[key];
+            let val = AdminData.getSettings()[key];
+            if (key === 'margen') val = this.margenAPct(val);
             if (el && document.activeElement !== el && val != null && val !== '') el.value = val;
           });
+          const red = document.getElementById('set-redondeo');
+          if (red && document.activeElement !== red) red.value = String(this.redondeoActual(AdminData.getSettings()));
         }
       }).catch(() => {});
     }
@@ -62,8 +67,20 @@ const AdminSettings = {
    * Carga settings a nivel global (CONFIG y ADMIN_CONFIG).
    * LO NECESITA AdminApp.init() — no eliminar.
    */
+  margenAPct(m) {
+    const n = Number(m);
+    return n > 0 ? Math.round((n - 1) * 100) : '';
+  },
+
+  redondeoActual(settings) {
+    const r = settings?.redondeo;
+    if (r !== undefined && r !== null && r !== '' && Number(r) >= 0) return Number(r);
+    return Number(CONFIG?.cotizacion?.redondeo) || 0;
+  },
+
   load() {
     const settings = AdminData.getSettings();
+    if (settings.redondeo !== undefined && settings.redondeo !== '' && Number(settings.redondeo) >= 0) CONFIG.cotizacion.redondeo = Number(settings.redondeo);
 
     if (settings.dolarManual) CONFIG.cotizacion.cotizacionManual = Number(settings.dolarManual) || CONFIG.cotizacion.cotizacionManual;
     if (settings.margen) CONFIG.cotizacion.margenGanancia = Number(settings.margen) || CONFIG.cotizacion.margenGanancia;
@@ -96,6 +113,7 @@ const AdminSettings = {
       instagram: s.instagram || '',
       dolarManual: Number(s.dolarManual) || 1200,
       margen: Number(s.margen) || 1.30,
+      redondeo: s.redondeo !== undefined && s.redondeo !== '' && Number(s.redondeo) >= 0 ? Number(s.redondeo) : (Number(CONFIG?.cotizacion?.redondeo) || 0),
       gastosFijos: {
         alquiler: gastosFijos.alquiler || 0,
         servicios: gastosFijos.servicios || 0,
@@ -123,18 +141,21 @@ const AdminSettings = {
       AdminApp.toast('El WhatsApp tiene que ir con código de país, sin espacios. Ej: 5493757338837', 'error');
       return;
     }
-    const margen = parseFloat(get('set-margen'));
-    if (margen && (margen < 1 || margen > 5)) {
-      AdminApp.toast('El margen es un multiplicador: 1.30 = 30% de ganancia', 'error');
+    // Se escribe como % (30); se guarda como multiplicador (1.30) como siempre
+    const pct = parseFloat(get('set-margen'));
+    if (get('set-margen').trim() && !(pct >= 0 && pct <= 400)) {
+      AdminApp.toast('La ganancia va en %: por ejemplo 30', 'error');
       return;
     }
+    const margen = pct >= 0 ? Math.round((1 + pct / 100) * 10000) / 10000 : 1.30;
     const settings = {
       nombre: get('set-nombre').trim(),
       whatsapp,
       email: get('set-email').trim(),
       instagram: get('set-instagram').trim().replace(/^@/, ''),
       dolarManual: parseFloat(get('set-dolar-manual')) || 1200,
-      margen: parseFloat(get('set-margen')) || 1.30,
+      margen,
+      redondeo: Number(get('set-redondeo')) || 0,
       gastosFijos: {
         alquiler: parseFloat(get('set-gasto-alquiler')) || 0,
         servicios: parseFloat(get('set-gasto-servicios')) || 0,
@@ -183,6 +204,7 @@ const AdminSettings = {
     if (settings.instagram) CONFIG.negocio.instagram = settings.instagram;
     CONFIG.cotizacion.cotizacionManual = settings.dolarManual;
     CONFIG.cotizacion.margenGanancia = settings.margen;
+    CONFIG.cotizacion.redondeo = Number(settings.redondeo) || 0;
 
     // Disparar evento personalizado para que otros módulos reaccionen
     window.dispatchEvent(new CustomEvent('config:updated', { detail: settings }));

@@ -139,12 +139,21 @@ const AdminApp = {
   },
 
   async loadDolarRate() {
+    // El mismo dólar que usa la tienda (así el precio que ves acá es el que ve la clienta)
     try {
-      const resp = await fetch('https://criptoya.com/api/dolar');
-      const data = await resp.json();
-      this.dolarRate = data.oficial?.ask || data.blue?.ask || 1200;
-    } catch {
-      this.dolarRate = 1200;
+      // Máximo 6 s: el Apps Script a veces tarda en despertarse y no tiene que trabar el panel
+      const v = await Promise.race([SheetsService.obtenerCotizacion(), new Promise(r => setTimeout(() => r(0), 6000))]);
+      if (Number(v) > 0) this.dolarRate = Number(v);
+    } catch {}
+    if (!this.dolarRate) {
+      try {
+        const resp = await fetch('https://criptoya.com/api/dolar');
+        const data = await resp.json();
+        this.dolarRate = data.oficial?.ask || data.blue?.ask || 1200;
+      } catch {
+        this.dolarRate = 1200;
+      }
+      SheetsService.cotizacionDolar = this.dolarRate;
     }
     const el = document.getElementById('admin-dolar-value');
     if (el) el.textContent = '$' + this.dolarRate.toLocaleString('es-AR');

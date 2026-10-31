@@ -36,6 +36,12 @@ export function margenGlobal() {
   return Number(process.env.MARGEN_GANANCIA) || 1.30;
 }
 
+/** Redondeo de precios calculados (tiene que coincidir con CONFIG.cotizacion.redondeo de data/config.js) */
+export function redondeoGlobal() {
+  const v = process.env.REDONDEO;
+  return v !== undefined && v !== '' && Number(v) >= 0 ? Number(v) : 500;
+}
+
 export function dolarManual() {
   return Number(process.env.DOLAR_MANUAL) || 1200;
 }
@@ -108,6 +114,9 @@ function mapProducto(p) {
     precioARSManual: p.PrecioARSManual ? num(p.PrecioARSManual) : null,
     precioOferta: p.PrecioOferta ? num(p.PrecioOferta) : null,
     margenPersonalizado: p.MargenPersonalizado ? num(p.MargenPersonalizado) / 100 : null,
+    gananciaPct: p.GananciaPct !== undefined && p.GananciaPct !== '' && p.GananciaPct !== null && Number.isFinite(Number(p.GananciaPct)) ? Number(p.GananciaPct) : null,
+    costoMoneda: String(p.CostoMoneda || '').toUpperCase() === 'ARS' ? 'ARS' : 'USD',
+    costoARS: num(p.CostoARS),
     imagen: p.Imagen || '',
     stock: parseInt(p.Stock, 10) || 0,
     variantes: parseJSONSafe(p.Variantes, []),
@@ -236,6 +245,8 @@ export async function getStoreConfig() {
       promos,
       envios: Array.isArray(envios) && envios.length ? envios : ENVIOS_FALLBACK,
       envioGratisUmbralARS: num(promos.envioGratisUmbralARS) || 150000,
+      // El admin lo guarda en la hoja Config; si no esta, el valor por defecto de Vercel
+      redondeo: raw.redondeo !== undefined && raw.redondeo !== '' && Number(raw.redondeo) >= 0 ? Number(raw.redondeo) : redondeoGlobal(),
     };
   });
 }

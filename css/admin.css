@@ -3536,3 +3536,36 @@ details.tech-box > summary { cursor: pointer; font-weight: 700; color: var(--bor
   .order-item-row > .form-group:first-child, .order-item-row > .order-item-variante-box { grid-column: 1 / -1; }
   .order-item-row > button { grid-column: 3; grid-row: 2; }
 }
+
+/* Precio calculado desde el costo (pestaña Precios) */
+.precio-calculado { margin: 0.25rem 0 1rem; padding: 0.85rem 1rem; border-radius: 10px; background: #F0FDF4; border: 1px solid #BBF7D0; }
+.precio-calculado:empty { display: none; }
+.precio-calculado--error { background: #FEF2F2; border-color: #FECACA; color: #b91c1c; font-weight: 600; }
+.precio-calculado--tachado .precio-calculado__monto strong { text-decoration: line-through; opacity: 0.6; }
+.precio-calculado__monto { font-size: 1rem; }
+.precio-calculado__monto strong { font-size: 1.25rem; color: #15803d; }
+.precio-calculado__cuenta { font-size: 0.8rem; color: var(--texto-secundario); margin-top: 0.2rem; }
+.precio-calculado__nota { font-size: 0.82rem; margin-top: 0.35rem; }
+
+/* Combos dentro del producto */
+.combo-item { display: flex; align-items: center; gap: 0.75rem; padding: 0.6rem 0.75rem; border: 1px solid var(--gris-200, #eee); border-radius: 10px; margin-bottom: 0.5rem; background: #fff; }
+.combo-item > div:first-child { flex: 1; min-width: 0; }
+.combo-item small { color: var(--texto-secundario); }
+.combo-item--off { opacity: 0.6; }
+.combo-item__precio { font-weight: 700; color: var(--borgona-300); white-space: nowrap; }
+.combo-builder { padding: 0.9rem; border: 1px dashed var(--rosa-300, #F4A6BF); border-radius: 10px; background: var(--rosa-100); margin-bottom: 0.75rem; }
+.combo-otro { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+.combo-otro select { flex: 1; min-width: 0; }
+.combo-resumen { font-size: 0.85rem; margin: 0.25rem 0 0.75rem; line-height: 1.5; }
+.combo-resumen:empty { display: none; }
+.texto-error { color: #b91c1c; }
+
+/* Ventas por canal (Inicio) */
+.ventas-canal { margin-top: 1rem; }
+.ventas-canal:empty { display: none; }
+.ventas-canal h4 { font-size: 0.85rem; margin: 0 0 0.4rem; color: var(--borgona-400, #6b0019); }
+.ventas-canal__fila { display: flex; justify-content: space-between; gap: 0.5rem; font-size: 0.85rem; padding: 0.3rem 0; border-top: 1px solid var(--gris-200, #eee); }
+
+/* Botón "🛒 Vender" debajo del nombre (en el celu la tabla se desliza y las acciones quedan lejos) */
+.btn-vender { margin-top: 0.35rem; padding: 0.2rem 0.6rem; font-size: 0.78rem; background: #DCFCE7; color: #166534; border: 1px solid #86EFAC; border-radius: 999px; }
+.btn-vender:hover { background: #BBF7D0; }

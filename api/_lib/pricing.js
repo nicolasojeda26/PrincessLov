@@ -50,6 +50,7 @@ export function normalizePromos(cfg) {
       nombre: c.nombre || 'Combo',
       productoIds: arr(c.productoIds).map(String),
       precioUSD: num(c.precioUSD),
+      precioARS: Math.max(0, Math.round(num(c.precioARS))),
       activo: c.activo !== false,
     })),
     dosPorUno: arr(cfg?.dosPorUno).map((d) => ({
@@ -96,15 +97,29 @@ function preventaDeProducto(producto, promos, ahora) {
   return p;
 }
 
+/** Equivalente a SheetsService.redondearPrecio: hacia arriba al multiplo (0 = sin redondeo) */
+export function redondearPrecio(n, redondeo) {
+  const v = Math.round(num(n));
+  if (v <= 0) return 0;
+  const paso = num(redondeo);
+  return paso > 0 ? Math.ceil(v / paso) * paso : v;
+}
+
+/** Equivalente a SheetsService.factorGanancia */
+export function factorGanancia(producto, margen) {
+  const g = producto?.gananciaPct;
+  if (g !== null && g !== undefined && g !== '' && Number(g) >= 0) return 1 + Number(g) / 100;
+  return producto?.margenPersonalizado ?? margen;
+}
+
 /** Equivalente a SheetsService.calcularPrecioARS */
-export function calcularPrecioARS(precioUSD, producto, dolar, margen) {
+export function calcularPrecioARS(precioUSD, producto, dolar, margen, redondeo = 0) {
   if (producto?.precioARSManual) return Math.round(producto.precioARSManual);
-  const m = producto?.margenPersonalizado ?? margen;
-  return Math.round(precioUSD * dolar * m);
+  return redondearPrecio(precioUSD * dolar * factorGanancia(producto, margen), redondeo);
 }
 
 /** Equivalente a PromoEngine.precioVistaARS / precioCompraARS */
-export function precioUnitarioARS(producto, promos, dolar, margen, ahora = Date.now()) {
+export function precioUnitarioARS(producto, promos, dolar, margen, ahora = Date.now(), redondeo = 0) {
   let usd = num(producto.precioUSD);
 
   const flash = flashDeProducto(producto, promos, ahora);
@@ -113,7 +128,7 @@ export function precioUnitarioARS(producto, promos, dolar, margen, ahora = Date.
   const prev = preventaDeProducto(producto, promos, ahora);
   if (prev && prev.precioUSD > 0) usd = prev.precioUSD;
 
-  let base = calcularPrecioARS(usd, producto, dolar, margen);
+  let base = calcularPrecioARS(usd, producto, dolar, margen, redondeo);
   // Igual que PromoEngine.precioVistaARS: con precio fijo en pesos, el flash descuenta de ese precio
   if (flash && producto.precioARSManual > 0) base = Math.round(producto.precioARSManual * (1 - flash.descuento / 100));
 
@@ -152,24 +167,26 @@ function descuentoDosPorUno(lineas, promos) {
   return Math.round(gratis.reduce((s, v) => s + v, 0));
 }
 
-function descuentoCombos(lineas, promos, dolar, margen) {
+function descuentoCombos(lineas, promos, dolar, margen, redondeo = 0) {
   let total = 0;
   promos.combos
     .filter((c) => c.activo && c.productoIds.length)
     .forEach((c) => {
-      const presente = c.productoIds.every((rid) =>
-        lineas.some((l) => String(l.id) === String(rid) && l.cantidad > 0)
-      );
-      if (!presente) return;
+      // Cuantos combos completos hay en el carrito (igual que js/promos.js)
+      const ids = [...new Set(c.productoIds.map(String))];
+      const cant = (id) => lineas.filter((l) => String(l.id) === id).reduce((s, l) => s + l.cantidad, 0);
+      const sets = Math.min(...ids.map(cant));
+      if (!(sets > 0)) return;
+      const unidad = (id) => Math.max(0, ...lineas.filter((l) => String(l.id) === id).map((l) => l.precioUnitario));
+      const sumaSet = ids.reduce((s, id) => s + unidad(id), 0);
 
-      const miembros = lineas.filter((l) => c.productoIds.includes(String(l.id)));
-      const sumaARS = miembros.reduce((s, l) => s + l.precioUnitario * l.cantidad, 0);
-
-      if (c.precioUSD > 0) {
-        const precioCombo = calcularPrecioARS(c.precioUSD, null, dolar, margen);
-        if (precioCombo > 0 && precioCombo < sumaARS) total += sumaARS - precioCombo;
+      // Precio fijo en pesos (oct/2026) o, en combos viejos, USD x dolar x margen
+      const precioCombo = c.precioARS > 0 ? c.precioARS
+        : (c.precioUSD > 0 ? calcularPrecioARS(c.precioUSD, null, dolar, margen, redondeo) : 0);
+      if (precioCombo > 0) {
+        if (precioCombo < sumaSet) total += (sumaSet - precioCombo) * sets;
       } else {
-        total += sumaARS * 0.1;
+        total += sumaSet * 0.1 * sets;
       }
     });
   return Math.round(total);
@@ -217,6 +234,7 @@ export async function cotizarCarrito({ items, shippingId, promoCode }) {
 
   const promos = normalizePromos(storeConfig.promos);
   const margen = margenGlobal();
+  const redondeo = storeConfig.redondeo;
   const ahora = Date.now();
 
   /* --- Lineas --- */
@@ -247,7 +265,7 @@ export async function cotizarCarrito({ items, shippingId, promoCode }) {
       continue;
     }
 
-    const precioUnitario = precioUnitarioARS(producto, promos, dolar, margen, ahora);
+    const precioUnitario = precioUnitarioARS(producto, promos, dolar, margen, ahora, redondeo);
     if (precioUnitario <= 0) {
       errores.push(`${producto.nombre}: precio no disponible`);
       continue;
@@ -264,6 +282,7 @@ export async function cotizarCarrito({ items, shippingId, promoCode }) {
       precioUnitario,
       subtotal: precioUnitario * cantidad,
       precioUSD: producto.precioUSD,
+      costoUnitarioARS: producto.costoMoneda === 'ARS' && producto.costoARS > 0 ? producto.costoARS : null,
     });
   }
 
@@ -275,7 +294,7 @@ export async function cotizarCarrito({ items, shippingId, promoCode }) {
   const descuentosAuto = [];
   const d2x1 = descuentoDosPorUno(lineas, promos);
   if (d2x1 > 0) descuentosAuto.push({ id: '2x1', label: 'Promo 2x1', monto: d2x1 });
-  const dCombo = descuentoCombos(lineas, promos, dolar, margen);
+  const dCombo = descuentoCombos(lineas, promos, dolar, margen, redondeo);
   if (dCombo > 0) descuentosAuto.push({ id: 'combos', label: 'Combos', monto: dCombo });
   const totalAuto = descuentosAuto.reduce((s, d) => s + d.monto, 0);
 
@@ -320,7 +339,7 @@ export async function cotizarCarrito({ items, shippingId, promoCode }) {
 
   /* --- Costo estimado (para el margen que muestra el admin) --- */
   const costoTotal = Math.round(
-    lineas.reduce((s, l) => s + l.precioUSD * l.cantidad, 0) * dolar
+    lineas.reduce((s, l) => s + (l.costoUnitarioARS != null ? l.costoUnitarioARS : l.precioUSD * dolar) * l.cantidad, 0)
   );
 
   return {

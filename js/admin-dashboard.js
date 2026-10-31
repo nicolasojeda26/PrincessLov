@@ -64,6 +64,19 @@ const AdminDashboard = {
     const stats = AdminData.getStats(this.currentPeriod === 'all' ? null : this.currentPeriod);
     this.renderVentasChart(stats);
     this.renderEstadosChart(stats);
+    this.renderPorCanal(stats);
+  },
+
+  /** Cuánto se vendió por WhatsApp, por la web, etc. */
+  renderPorCanal(stats) {
+    const el = document.getElementById('ventas-por-canal');
+    if (!el) return;
+    const lista = stats.porOrigen || [];
+    el.innerHTML = lista.length ? `<h4>Ventas por canal</h4>` + lista.map(o => `
+      <div class="ventas-canal__fila">
+        <span>${o.icon} ${escHtml(o.label)}</span>
+        <span>${o.pedidos} venta${o.pedidos !== 1 ? 's' : ''} · <strong>${AdminData.formatARS(o.ingresos)}</strong></span>
+      </div>`).join('') : '';
   },
 
   renderVentasChart(stats) {

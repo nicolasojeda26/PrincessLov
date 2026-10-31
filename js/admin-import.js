@@ -293,13 +293,23 @@ const AdminImport = {
         if (precioGenericoEsARS) precioARS = precioARS || n; else precioUSD = precioUSD || n;
       }
       precioUSD += this.parseObservaciones(obs);
-      if (!precioUSD && !precioARS && costoUnit > 0 && AdminApp.dolarRate > 0) {
-        precioUSD = costoUnit / AdminApp.dolarRate; // costo en pesos → USD para calcular con margen
-      }
+      // Costo en pesos: se guarda como costo en pesos (antes se pasaba a dólares
+      // y el precio cambiaba solo con el dólar aunque la mercadería se pagó en pesos)
+      const costoEnPesos = !precioUSD && !precioARS && costoUnit > 0;
+      if (costoEnPesos) { item.costoMoneda = 'ARS'; item.costoARS = Math.round(costoUnit); }
       if (tiene('precioUSD') || tiene('precio') || precioUSD || !previo) item.precioUSD = Math.round(precioUSD * 100) / 100;
       if (tiene('precioARS') || (tiene('precio') && precioGenericoEsARS)) item.precioARSManual = precioARS > 0 ? Math.round(precioARS) : null;
       if (tiene('precioOferta')) { const o = this.parseNumber(row[colMap.precioOferta]); item.precioOferta = o > 0 ? Math.round(o) : null; }
-      if (tiene('margen')) { const m = this.parseNumber(row[colMap.margen]); item.margenPersonalizado = m > 0 ? (m > 5 ? m / 100 : m) : null; }
+      // Margen: "30" = 30% · "1,3" = 30% (multiplicador) · "0,3" = 30%
+      if (tiene('margen')) {
+        const m = this.parseNumber(row[colMap.margen]);
+        item.gananciaPct = m > 0 ? Math.round(m > 5 ? m : (m >= 1 ? (m - 1) * 100 : m * 100)) : null;
+        item.margenPersonalizado = null;
+      }
+      if (costoEnPesos && !item.precioARSManual) {
+        if (item.gananciaPct == null) item.gananciaPct = Math.round(((Number(CONFIG.cotizacion.margenGanancia) || 1.3) - 1) * 100);
+        item.precioARSManual = SheetsService.precioDesdeCosto({ moneda: 'ARS', costo: item.costoARS, gananciaPct: item.gananciaPct });
+      }
       if (costoUnit) item.costoUnitarioARS = costoUnit;
 
       // --- Textos y fotos ---
