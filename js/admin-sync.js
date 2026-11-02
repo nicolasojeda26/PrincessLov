@@ -172,6 +172,9 @@ const AdminSync = {
       items: Array.isArray(items) ? items : [],
       origen: String(r.Origen || ''),
       stockDescontado: String(r.StockDescontado || '').toLowerCase() === 'si',
+      cobro: String(r.Cobro || ''),
+      envioCosto: Number(r.EnvioCosto) || 0,
+      clienteId: String(r.ClienteId || ''),
     };
   },
 
@@ -183,11 +186,24 @@ const AdminSync = {
       Total: Number(o.total) || 0, CostoTotal: Number(o.costoTotal) || 0, Notas: o.notas || '',
       Items: JSON.stringify(o.items || []), StockDescontado: o.stockDescontado ? 'si' : 'no',
       Origen: o.origen || 'admin',
+      Cobro: o.cobro || '', EnvioCosto: Number(o.envioCosto) || 0, ClienteId: o.clienteId || '',
     };
   },
 
   gastoDesdeHoja(r) {
-    return { id: String(r.ID), fecha: r.Fecha ? new Date(r.Fecha).toISOString() : '', concepto: String(r.Concepto || ''), monto: Number(r.Monto) || 0, categoria: String(r.Categoria || ''), notas: String(r.Notas || '') };
+    // Todas las columnas (tipo, proveedor, mes, IVA, USD...) con el mismo mapeo que Finanzas
+    const g = Fin.fromRow(r, Fin.GASTO_NUM, ['pagadoExterno']);
+    g.fecha = r.Fecha ? new Date(r.Fecha).toISOString() : '';
+    g.concepto = String(r.Concepto || '');
+    if (!r.Tipo) { delete g.tipo; delete g.pagadoExterno; }
+    return g;
+  },
+
+  /** Gasto a la planilla con todas sus columnas (Apps Script viejo: solo las básicas) */
+  publicarGasto(g, etiqueta) {
+    if (!g || !this.habilitado()) return;
+    if (!Fin.remotoOk) return this.publicar('create_expense', { expense: g }, etiqueta);
+    this.publicar('fin_upsert', { sheet: 'gastos', row: Fin.toRow(g) }, etiqueta);
   },
 
   /* ---------- Sincronización completa ---------- */
@@ -228,7 +244,14 @@ const AdminSync = {
       const gasRemotos = gastos.filter(r => r.ID).map(r => this.gastoDesdeHoja(r));
       const idsGas = new Set(gasRemotos.map(g => g.id));
       const gasLocales = AdminData.getExpenses().filter(g => !idsGas.has(String(g.id)));
-      for (const g of gasLocales) await this.post('create_expense', { expense: g });
+      // Finanzas: cuentas, movimientos, socios, proveedores, clientes y caja
+      let fin = {};
+      try { fin = await Fin.sincronizar(); } catch (e) { console.warn('[Fin] sync', e); }
+      for (const g of gasLocales) {
+        if (Fin.remotoOk) await this.post('fin_upsert', { sheet: 'gastos', row: Fin.toRow(g) });
+        else await this.post('create_expense', { expense: g });
+      }
+      this._finViejo = !!fin.actualizar;
       AdminData.saveExpenses([...gasRemotos, ...gasLocales]);
 
       // Leads del Club Prince (solo lectura)
@@ -263,7 +286,10 @@ const AdminSync = {
         let cambio = false;
         if (Number(cfg.margen) > 0) { CONFIG.cotizacion.margenGanancia = Number(cfg.margen); st.margen = Number(cfg.margen); cambio = true; }
         if (cfg.redondeo !== undefined && cfg.redondeo !== '' && Number(cfg.redondeo) >= 0) { CONFIG.cotizacion.redondeo = Number(cfg.redondeo); st.redondeo = Number(cfg.redondeo); cambio = true; }
+        if (cfg.impuestoVentasPct !== undefined && cfg.impuestoVentasPct !== '') { st.impuestoVentasPct = Number(cfg.impuestoVentasPct) || 0; cambio = true; }
         if (cambio) AdminData.saveSettings(st);
+        const rec = parse(cfg.gastosRecurrentes);
+        if (rec && typeof rec === 'object') localStorage.setItem(Fin.RECURRENTES_KEY, JSON.stringify(rec));
         const envios = parse(cfg.envios);
         if (Array.isArray(envios) && envios.length) { localStorage.setItem('pl_admin_envios', JSON.stringify(envios)); CONFIG.envios = envios; }
       } finally { this._silencio = false; }
@@ -276,7 +302,11 @@ const AdminSync = {
         || (AdminApp.currentSection === 'promos' && typeof AdminPromos !== 'undefined' && AdminPromos.dirty);
       if (!editando) AdminApp.renderSection(AdminApp.currentSection);
       AdminApp.actualizarBadges?.();
-      const subidos = soloLocales.length + pedLocales.length + gasLocales.length;
+      if (!this._autoRec) {
+        this._autoRec = true;
+        try { const n = Fin.autoGenerar(); if (n) AdminApp.toast(`🔁 Se generaron ${n} gastos fijos del mes`); } catch (e) { console.warn('[Fin] recurrentes', e); }
+      }
+      const subidos = soloLocales.length + pedLocales.length + gasLocales.length + (fin.subidos || 0);
       if (manual || subidos) AdminApp.toast(`✅ Sincronizado con Google Sheets${subidos ? ` (${subidos} registros locales subidos)` : ''}`);
     } catch (err) {
       this.errores++;
@@ -322,7 +352,8 @@ const AdminSync = {
     });
     wrap('updateOrder', (o) => o && self.publicar('update_order', { id: o.id, updates: self.pedidoParaHoja(o) }, 'el pedido'));
     wrap('deleteOrder', (_r, _a, id) => self.publicar('delete_order', { id }, 'la baja del pedido'));
-    wrap('addExpense', (g) => g && self.publicar('create_expense', { expense: g }, 'el gasto'));
+    wrap('addExpense', (g) => self.publicarGasto(g, 'el gasto'));
+    wrap('updateExpense', (g) => self.publicarGasto(g, 'el gasto'));
     wrap('deleteExpense', (_r, _a, id) => self.publicar('delete_expense', { id }, 'la baja del gasto'));
     wrap('saveCategorias', () => self.publicar('save_config', { config: { categorias: JSON.stringify(AdminData.getEffectiveCategorias()) } }, 'las categorías'));
     wrap('resetCategorias', () => self.publicar('save_config', { config: { categorias: '' } }, 'las categorías'));

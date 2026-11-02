@@ -217,6 +217,15 @@ const AdminData = {
     return expense;
   },
 
+  updateExpense(id, updates) {
+    const expenses = this.getExpenses();
+    const i = expenses.findIndex(e => String(e.id) === String(id));
+    if (i === -1) return null;
+    expenses[i] = { ...expenses[i], ...updates };
+    this.saveExpenses(expenses);
+    return expenses[i];
+  },
+
   deleteExpense(id) {
     const expenses = this.getExpenses().filter(e => e.id !== id);
     this.saveExpenses(expenses);

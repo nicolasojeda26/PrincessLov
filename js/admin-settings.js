@@ -21,6 +21,7 @@ const AdminSettings = {
     // El margen se guarda como multiplicador (1.30) pero se muestra como % (30)
     set('set-margen', this.margenAPct(settings.margen || CONFIG?.cotizacion?.margenGanancia));
     set('set-redondeo', String(this.redondeoActual(settings)));
+    set('set-impuesto-ventas', settings.impuestoVentasPct || '');
 
     // Gastos fijos
     const gf = settings.gastosFijos || {};
@@ -114,6 +115,7 @@ const AdminSettings = {
       dolarManual: Number(s.dolarManual) || 1200,
       margen: Number(s.margen) || 1.30,
       redondeo: s.redondeo !== undefined && s.redondeo !== '' && Number(s.redondeo) >= 0 ? Number(s.redondeo) : (Number(CONFIG?.cotizacion?.redondeo) || 0),
+      impuestoVentasPct: Math.max(0, Number(s.impuestoVentasPct) || 0),
       gastosFijos: {
         alquiler: gastosFijos.alquiler || 0,
         servicios: gastosFijos.servicios || 0,
@@ -156,6 +158,7 @@ const AdminSettings = {
       dolarManual: parseFloat(get('set-dolar-manual')) || 1200,
       margen,
       redondeo: Number(get('set-redondeo')) || 0,
+      impuestoVentasPct: Math.max(0, Math.min(50, parseFloat(get('set-impuesto-ventas')) || 0)),
       gastosFijos: {
         alquiler: parseFloat(get('set-gasto-alquiler')) || 0,
         servicios: parseFloat(get('set-gasto-servicios')) || 0,

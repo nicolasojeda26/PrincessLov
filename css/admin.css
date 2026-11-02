@@ -3569,3 +3569,79 @@ details.tech-box > summary { cursor: pointer; font-weight: 700; color: var(--bor
 /* Botón "🛒 Vender" debajo del nombre (en el celu la tabla se desliza y las acciones quedan lejos) */
 .btn-vender { margin-top: 0.35rem; padding: 0.2rem 0.6rem; font-size: 0.78rem; background: #DCFCE7; color: #166534; border: 1px solid #86EFAC; border-radius: 999px; }
 .btn-vender:hover { background: #BBF7D0; }
+
+/* ============ FINANZAS (nov/2026) ============ */
+.fin-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 0.75rem; margin: 0 0 1.25rem; }
+.fin-card { background: #fff; border: 1px solid var(--gris-200, #eee); border-radius: 12px; padding: 0.85rem 1rem; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+.fin-card[role=button] { cursor: pointer; transition: transform .12s, box-shadow .12s; }
+.fin-card[role=button]:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(128,0,32,0.10); }
+.fin-card__label { font-size: 0.78rem; color: var(--texto-secundario); font-weight: 600; }
+.fin-card__valor { font-size: 1.3rem; font-weight: 800; margin-top: 0.15rem; color: var(--texto, #1a1a1a); }
+.fin-card__sub { font-size: 0.75rem; color: var(--texto-secundario); margin-top: 0.15rem; }
+.fin-card--ok .fin-card__valor { color: #047857; }
+.fin-card--alerta .fin-card__valor { color: #B91C1C; }
+.fin-card--destacada { background: var(--rosa-100); border-color: var(--rosa-300, #F4A6BF); }
+.fin-resumen:empty { display: none; }
+.fin-subtitulo { font-size: 1rem; color: var(--borgona-400, #6b0019); margin: 1.25rem 0 0.6rem; }
+.fin-filtros { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.fin-filtros select, .fin-filtros input[type=date] { padding: 0.45rem 0.6rem; border: 1px solid var(--gris-200, #ddd); border-radius: 8px; background: #fff; font: inherit; font-size: 0.85rem; }
+.fin-vacio { padding: 1.5rem; text-align: center; color: var(--texto-secundario); background: var(--gris-100); border: 1px dashed var(--gris-200); border-radius: 10px; font-size: 0.9rem; }
+.fin-table td, .rep-tabla td { vertical-align: middle; }
+.fin-table .num, .rep-tabla .num { text-align: right; white-space: nowrap; }
+.fin-table small { color: var(--texto-secundario); }
+.fin-check { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.88rem; cursor: pointer; }
+.fin-pills { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.fin-pill { padding: 0.4rem 0.75rem; border: 1px solid var(--gris-200, #ddd); border-radius: 999px; background: #fff; font: inherit; font-size: 0.82rem; cursor: pointer; }
+.fin-pill.is-on { background: var(--borgona-300, #800020); border-color: var(--borgona-300, #800020); color: #fff; }
+.fin-form__error { color: #B91C1C; font-weight: 600; margin-top: 0.5rem; }
+.fin-modal { max-width: 760px; }
+.fin-auto { margin-top: 1rem; padding: 0.75rem; border-radius: 10px; background: var(--gris-100); display: flex; flex-direction: column; gap: 0.4rem; }
+.fin-auto input[type=number] { padding: 0.2rem 0.3rem; border: 1px solid var(--gris-200); border-radius: 6px; }
+#fin-modal-body .rec-monto { width: 8rem; padding: 0.35rem 0.5rem; border: 1px solid var(--gris-200); border-radius: 6px; }
+#fin-modal-body .rec-pago { max-width: 13rem; padding: 0.35rem; border: 1px solid var(--gris-200); border-radius: 6px; }
+.fin-turno { margin-bottom: 1.25rem; }
+.fin-billetes { margin: 0.5rem 0; }
+.fin-billetes summary { cursor: pointer; font-weight: 600; font-size: 0.88rem; }
+.fin-billetes__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.4rem; margin-top: 0.5rem; font-size: 0.85rem; }
+.fin-billetes__grid input { width: 4.5rem; padding: 0.25rem; border: 1px solid var(--gris-200); border-radius: 6px; }
+.nav-badge:not([hidden]) + .nav-badge { margin-left: 0.25rem; }
+
+/* Cobro dentro de la venta */
+.order-cobro { margin-top: 1rem; padding: 0.9rem; border-radius: 10px; background: #F0FDF4; border: 1px solid #BBF7D0; }
+.order-cobro h4 { margin: 0 0 0.5rem; color: #166534; }
+.order-cobros { list-style: none; padding: 0; margin: 0 0 0.5rem; font-size: 0.85rem; }
+.order-cobros li { display: flex; align-items: center; gap: 0.4rem; padding: 0.2rem 0; }
+.order-cobro-resumen { font-size: 0.88rem; margin: 0 0 0.6rem; }
+.order-debe { background: #FEE2E2 !important; color: #991B1B !important; }
+
+/* Reportes */
+.rep-tabs { flex-wrap: wrap; margin-bottom: 1rem; }
+.rep-intro { font-size: 0.85rem; color: var(--texto-secundario); margin: 0 0 0.75rem; }
+.rep-wrap { overflow-x: auto; }
+.rep-tabla { min-width: 900px; font-size: 0.82rem; }
+.rep-tabla th:first-child, .rep-tabla td:first-child { position: sticky; left: 0; background: #fff; z-index: 1; min-width: 210px; }
+.rep-tabla .rep-sep td { background: var(--gris-100); font-weight: 700; color: var(--borgona-400, #6b0019); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.rep-tabla .rep-sub td { font-weight: 600; background: #FAFAFA; }
+.rep-tabla .rep-total td { font-weight: 800; background: var(--rosa-100); }
+.rep-tabla .rep-sep td:first-child, .rep-tabla .rep-sub td:first-child { background: inherit; }
+.rep-tabla .rep-total td:first-child { background: var(--rosa-100); }
+.rep-tabla td.neg { color: #B91C1C; }
+.rep-ayuda { cursor: help; color: var(--texto-secundario); font-size: 0.8em; }
+
+@media (max-width: 720px) {
+  .fin-cards { grid-template-columns: 1fr 1fr; }
+  .fin-card__valor { font-size: 1.05rem; }
+  .fin-table { min-width: 640px; }
+  .fin-filtros { width: 100%; }
+  .fin-filtros select, .fin-filtros .search-input { flex: 1 1 140px; }
+}
+@media print {
+  .admin-sidebar, .admin-topbar, .products-toolbar, .rep-tabs, .section-help { display: none !important; }
+  .rep-tabla { min-width: 0; font-size: 9px; }
+}
+.fin-table-wrap, .rep-wrap, #fin-modal-body .table-container { overflow-x: auto; margin-bottom: 1rem; -webkit-overflow-scrolling: touch; }
+.fin-table td { padding: 0.65rem 0.8rem; }
+.fin-table .table-actions { display: flex; gap: 0.35rem; flex-wrap: nowrap; }
+.rep-tabla th, .rep-tabla td { padding: 0.45rem 0.6rem; font-size: 0.8rem; }
+.rep-tabla th:first-child { background: var(--gris-100); }
+.rep-tabla tbody tr:hover { background: transparent; }

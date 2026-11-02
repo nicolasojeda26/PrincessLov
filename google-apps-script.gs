@@ -40,6 +40,13 @@ const SHEET_NAMES = {
   CLUBPRINCE: 'ClubPrince_Leads',
   NEWSLETTER: 'Newsletter',
   ARREPENTIMIENTO: 'Arrepentimiento',
+  // Finanzas (nov/2026)
+  CUENTAS: 'Cuentas',
+  MOVIMIENTOS: 'Movimientos',
+  SOCIOS: 'Socios',
+  PROVEEDORES: 'Proveedores',
+  CLIENTES: 'Clientes',
+  TURNOS: 'Turnos',
 };
 
 const HEADERS = {
@@ -55,7 +62,15 @@ const HEADERS = {
     'Provincia', 'Estado', 'MedioPago', 'MetodoEnvio', 'Total', 'CostoTotal',
     'Notas', 'Items', 'MP_PaymentID', 'MP_Status', 'StockDescontado', 'Origen', 'Cupon'
   ],
-  GASTOS: ['ID', 'Fecha', 'Concepto', 'Monto', 'Categoria', 'Notas'],
+  GASTOS: ['ID', 'Fecha', 'Concepto', 'Monto', 'Categoria', 'Notas', 'Tipo', 'ProveedorId', 'Mes', 'Iva',
+    'FechaComprobante', 'Moneda', 'MontoUSD', 'Cotizacion', 'RecurrenteId', 'Origen', 'PedidoId', 'PagadoExterno'],
+  CUENTAS: ['ID', 'Nombre', 'TipoCuenta', 'SaldoInicial', 'ComisionPct', 'Activa', 'Orden', 'Notas'],
+  MOVIMIENTOS: ['ID', 'Fecha', 'Tipo', 'Monto', 'CuentaId', 'CuentaDestinoId', 'PedidoId', 'GastoId',
+    'ClienteId', 'ProveedorId', 'SocioId', 'TurnoId', 'Nota'],
+  SOCIOS: ['ID', 'Nombre', 'Participacion', 'Email', 'Notas'],
+  PROVEEDORES: ['ID', 'Nombre', 'TipoProveedor', 'Telefono', 'Email', 'Cuit', 'Notas'],
+  CLIENTES: ['ID', 'Nombre', 'Telefono', 'Email', 'Direccion', 'Localidad', 'Provincia', 'Cuit', 'Notas'],
+  TURNOS: ['ID', 'Fecha', 'Estado', 'CuentaId', 'MontoInicial', 'Cierre', 'Esperado', 'Contado', 'Diferencia', 'Notas'],
   CONFIG: ['Clave', 'Valor'],
   DOLAR: ['Fecha', 'Valor'],
   CLUBPRINCE: ['ID', 'Fecha', 'Nombre', 'Telefono', 'Ciudad', 'Origen', 'Estado', 'Plan'],
@@ -148,6 +163,9 @@ function doPost(e) {
       case 'update_order': result = updateOrder(data.id, data.updates); break;
       case 'delete_order': result = deleteRowById(SHEET_NAMES.PEDIDOS, data.id); break;
       case 'create_expense': result = createExpense(data.expense); break;
+      case 'fin_version': result = { version: 1 }; break;
+      case 'fin_upsert': result = finUpsert(data.sheet, data.row); break;
+      case 'fin_delete': result = finDelete(data.sheet, data.id); break;
       case 'delete_expense': result = deleteRowById(SHEET_NAMES.GASTOS, data.id); break;
       case 'save_config': result = saveConfig(data.config); break;
       case 'add_dolar_rate': result = addDolarRate(data.valor); break;
@@ -514,6 +532,15 @@ function updateOrder(id, updates) {
   const rowData = {};
   headers.forEach((h, i) => rowData[h] = current[i]);
   
+  // Columnas nuevas de finanzas (nov/2026): se agregan si la hoja no las tiene
+  ['Cobro', 'EnvioCosto', 'ClienteId', 'Origen'].forEach(function (k) {
+    if ((updates || {})[k] !== undefined && headers.indexOf(k) === -1) {
+      headers.push(k);
+      sheet.getRange(1, headers.length).setValue(k);
+      current.push('');
+    }
+  });
+
   // Aplicar actualizaciones (solo columnas existentes, sin cambiar el ID)
   Object.keys(updates || {}).forEach(function (k) {
     if (k === 'ID' || headers.indexOf(k) === -1) return;
@@ -544,6 +571,49 @@ function createExpense(expense) {
   };
   writeRow(SHEET_NAMES.GASTOS, rowData, id);
   return { success: true, id };
+}
+
+// ============================================
+// FINANZAS (nov/2026): cuentas, movimientos, socios, proveedores,
+// clientes, turnos de caja y gastos con todos sus campos.
+// El admin manda la fila ya armada; acá solo se limita a estas hojas
+// y se limpia cada valor.
+// ============================================
+
+const FIN_SHEETS = {
+  gastos: SHEET_NAMES.GASTOS, cuentas: SHEET_NAMES.CUENTAS, movimientos: SHEET_NAMES.MOVIMIENTOS,
+  socios: SHEET_NAMES.SOCIOS, proveedores: SHEET_NAMES.PROVEEDORES, clientes: SHEET_NAMES.CLIENTES,
+  turnos: SHEET_NAMES.TURNOS,
+};
+
+function finUpsert(sheetKey, row) {
+  const sheetName = FIN_SHEETS[String(sheetKey || '').toLowerCase()];
+  if (!sheetName) return { error: 'Hoja no permitida' };
+  if (!row || typeof row !== 'object' || !row.ID) return { error: 'Fila inválida' };
+  const clean = {};
+  Object.keys(row).slice(0, 40).forEach(function (k) {
+    const key = String(k).replace(/[^A-Za-z0-9_]/g, '').slice(0, 40);
+    if (!key) return;
+    const v = row[k];
+    clean[key] = (typeof v === 'number') ? (isFinite(v) ? v : 0)
+      : (typeof v === 'boolean') ? v
+      : limpio(typeof v === 'object' && v !== null ? JSON.stringify(v) : v, 2000);
+  });
+  clean.ID = limpio(row.ID, 60);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    writeRow(sheetName, clean, clean.ID);
+  } finally {
+    lock.releaseLock();
+  }
+  return { success: true, id: clean.ID };
+}
+
+function finDelete(sheetKey, id) {
+  const sheetName = FIN_SHEETS[String(sheetKey || '').toLowerCase()];
+  if (!sheetName) return { error: 'Hoja no permitida' };
+  return deleteRowById(sheetName, id);
 }
 
 // ============================================
