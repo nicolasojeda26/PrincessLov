@@ -251,7 +251,7 @@ const Fin = {
     }
     if (String(m.cuentaId) !== id) return 0;
     if (['cobro', 'cobro_cuenta', 'aporte'].includes(m.tipo)) return monto;
-    if (['pago', 'retiro'].includes(m.tipo)) return -monto;
+    if (['pago', 'retiro', 'devolucion'].includes(m.tipo)) return -monto;
     if (m.tipo === 'ajuste') return monto; // con signo
     return 0;
   },
@@ -285,7 +285,38 @@ const Fin = {
 
   /* ==================== COBROS DE VENTAS ==================== */
   cobrosDePedido(id) { return this.list('movimientos').filter(m => m.tipo === 'cobro' && String(m.pedidoId) === String(id)); },
-  cobradoDePedido(id) { return this.cobrosDePedido(id).reduce((s, m) => s + (Number(m.monto) || 0), 0); },
+  devolucionesDePedido(id) { return this.list('movimientos').filter(m => m.tipo === 'devolucion' && String(m.pedidoId) === String(id)); },
+  cobradoDePedido(id) {
+    const cobrado = this.cobrosDePedido(id).reduce((s, m) => s + (Number(m.monto) || 0), 0);
+    const devuelto = this.devolucionesDePedido(id).reduce((s, m) => s + (Number(m.monto) || 0), 0);
+    return Math.round((cobrado - devuelto) * 100) / 100;
+  },
+
+  /**
+   * Venta cancelada que ya estaba cobrada.
+   * devolver=true: la plata sale de la misma cuenta (devolución) y se borran las comisiones.
+   * devolver=false: lo cobrado queda como saldo a favor de la clienta (si tiene ficha).
+   */
+  cancelarCobros(o, devolver) {
+    const cobros = this.cobrosDePedido(o.id);
+    const neto = this.cobradoDePedido(o.id);
+    if (!(neto > 0)) return 0;
+    if (devolver) {
+      cobros.forEach(m => this.gastos().filter(g => String(g.cobroId) === String(m.id)).forEach(g => this.borrarGasto(g.id)));
+      // Una devolución por cuenta/socio, por lo que entró en cada una
+      const porOrigen = {};
+      cobros.forEach(m => { const k = (m.cuentaId || '') + '|' + (m.socioId || ''); porOrigen[k] = (porOrigen[k] || 0) + (Number(m.monto) || 0); });
+      this.devolucionesDePedido(o.id).forEach(m => { const k = (m.cuentaId || '') + '|' + (m.socioId || ''); porOrigen[k] = (porOrigen[k] || 0) - (Number(m.monto) || 0); });
+      Object.entries(porOrigen).forEach(([k, monto]) => {
+        if (!(monto > 0)) return;
+        const [cuentaId, socioId] = k.split('|');
+        this.save('movimientos', { fecha: new Date().toISOString(), tipo: 'devolucion', monto: Math.round(monto * 100) / 100, cuentaId, socioId, pedidoId: o.id, clienteId: o.clienteId || '', turnoId: this.turnoAbierto()?.id || '', nota: `Devolución venta cancelada · ${o.cliente || ''}`.trim() });
+      });
+    } else if (o.clienteId && this.get('clientes', o.clienteId)) {
+      cobros.forEach(m => this.save('movimientos', { ...m, tipo: 'cobro_cuenta', pedidoId: '', clienteId: o.clienteId, nota: 'Saldo a favor (venta cancelada)' }));
+    }
+    return neto;
+  },
 
   /**
    * Estado de cobro de un pedido:
@@ -322,7 +353,7 @@ const Fin = {
     const pct = Number(cuenta?.comisionPct) || 0;
     if (cuenta && pct > 0) {
       this.crearGasto({
-        concepto: `Comisión ${cuenta.nombre} (${pct}%)`, monto: Math.round(m * pct) / 100,
+        concepto: `Comisión ${cuenta.nombre} (${String(pct).replace('.', ',')}%)`, monto: Math.round(m * pct) / 100,
         tipo: 'comercializacion', categoria: 'Comisiones', origen: 'comision', pedidoId: o.id, cobroId: mov.id,
         mes: this.mesDe(mov.fecha), fecha: mov.fecha,
       }, { cuentaId: cuenta.id, fecha: mov.fecha });
@@ -462,7 +493,7 @@ const Fin = {
       const sum = t => deS.filter(m => m.tipo === t).reduce((a, m) => a + (Number(m.monto) || 0), 0);
       const aportes = sum('aporte'), retiros = sum('retiro');
       const pagoConSuPlata = sum('pago');           // gastos que pagó de su bolsillo (pone plata)
-      const cobroParaEl = sum('cobro') + sum('cobro_cuenta'); // ventas que cobró y se quedó (saca plata)
+      const cobroParaEl = sum('cobro') + sum('cobro_cuenta') - sum('devolucion'); // ventas que cobró y se quedó (saca plata)
       return { ...s, pct: (Number(s.participacion) || 0) / totalPart * 100, aportes, retiros, pagoConSuPlata, cobroParaEl,
         neto: Math.round((aportes + pagoConSuPlata - retiros - cobroParaEl) * 100) / 100 };
     });
@@ -555,6 +586,10 @@ const Fin = {
     const mes = this.mesDe(hoy.toISOString());
     const ultimo = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0).getDate();
     if (hoy.getDate() < Math.min(Number(r.auto.dia) || 1, ultimo)) return 0;
+    // Una sola vez por mes: si después borra un gasto generado, no vuelve a aparecer solo
+    if (r.auto.ultimoMes === mes) return 0;
+    r.auto.ultimoMes = mes;
+    this.guardarRecurrentes(r);
     const items = r.plantillas.filter(p => p.activa !== false && !this.generadoDe(p.id, mes))
       .map(p => ({ plantillaId: p.id, monto: p.monto, pagar: !!(r.auto.registrarPagos && (p.cuentaId || p.socioId)), cuentaId: p.cuentaId, socioId: p.socioId }));
     return items.length ? this.aplicarMes(mes, items) : 0;
@@ -597,7 +632,7 @@ const Fin = {
   },
 
   ETIQUETA_MOV: {
-    cobro: '💰 Cobro de venta', cobro_cuenta: '💰 Entrega a cuenta', pago: '💸 Pago de gasto', transferencia: '🔁 Transferencia',
+    cobro: '💰 Cobro de venta', cobro_cuenta: '💰 Entrega a cuenta', devolucion: '↩️ Devolución', pago: '💸 Pago de gasto', transferencia: '🔁 Transferencia',
     aporte: '➕ Aporte de socio', retiro: '➖ Retiro de socio', ajuste: '⚖️ Ajuste',
   },
 };

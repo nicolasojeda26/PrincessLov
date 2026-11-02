@@ -176,7 +176,9 @@ const AdminOrders = {
       // Los pedidos de la web llegan sin costo: se sugiere el calculado
       const costoEl = document.getElementById('of-costo');
       costoEl.value = Number(o.costoTotal) || AdminData.costoPedido(o) || 0;
-      costoEl.dataset.auto = Number(o.costoTotal) ? '' : costoEl.value;
+      // Si el costo guardado es el calculado (no lo escribieron a mano), se recalcula al editar ítems
+      const calculado = AdminData.costoPedido(o);
+      costoEl.dataset.auto = !Number(o.costoTotal) || Math.abs(Number(o.costoTotal) - calculado) < 1 ? costoEl.value : '';
       document.getElementById('of-notas').value = o.notas || '';
 
       container.innerHTML = '';
@@ -432,6 +434,13 @@ const AdminOrders = {
     // Ficha del cliente (para la cuenta corriente)
     const ficha = Fin.asegurarCliente(data);
     if (ficha) data.clienteId = ficha.id;
+
+    // Cancelar una venta que ya se cobró: devolución o saldo a favor
+    if (previo && data.estado === 'cancelado' && previo.estado !== 'cancelado' && Fin.cobradoDePedido(previo.id) > 0) {
+      const neto = Fin.cobradoDePedido(previo.id);
+      const devolver = confirm(`Esta venta ya estaba cobrada (${AdminData.formatARS(neto)}).\n\n¿Le devolviste la plata?\nAceptar = registro la devolución (sale de la misma cuenta) y borro la comisión.\nCancelar = la plata queda${data.clienteId ? ' como saldo a favor de la clienta' : ' en la cuenta'}.`);
+      Fin.cancelarCobros({ ...previo, ...data }, devolver);
+    }
 
     let pedido;
     if (id) {

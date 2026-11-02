@@ -28,7 +28,7 @@ const FinUI = {
     return o;
   },
   leerPago(v) {
-    if (!v || v === 'pendiente') return null;
+    if (!v || v === 'pendiente' || v === 'nada') return null;
     const [t, id] = String(v).split(':');
     return t === 'socio' ? { socioId: id } : { cuentaId: id };
   },
@@ -380,7 +380,7 @@ const AdminExpenses = {
 
   guardarAuto() {
     const r = Fin.recurrentes();
-    r.auto = { activo: document.getElementById('rec-auto').checked, dia: Math.min(31, Math.max(1, Number(document.getElementById('rec-dia').value) || 1)), registrarPagos: document.getElementById('rec-pagos').checked };
+    r.auto = { ...r.auto, activo: document.getElementById('rec-auto').checked, dia: Math.min(31, Math.max(1, Number(document.getElementById('rec-dia').value) || 1)), registrarPagos: document.getElementById('rec-pagos').checked };
     Fin.guardarRecurrentes(r);
     AdminApp.toast('Opciones guardadas');
   },
@@ -458,7 +458,7 @@ const AdminCuentas = {
           return {
             nombre: `<strong>${FinUI.esc(c.nombre)}</strong>${c.activa === false ? ' <span class="badge badge-inactive">Inactiva</span>' : ''}`,
             tipo: `${t.icon || ''} ${FinUI.esc(t.label || '')}`,
-            comision: Number(c.comisionPct) ? `${c.comisionPct}%` : '—',
+            comision: Number(c.comisionPct) ? `${String(c.comisionPct).replace(".", ",")}%` : '—',
             saldo: `<strong class="${saldo < 0 ? 'texto-error' : ''}">${FinUI.ars(saldo)}</strong>`,
             acc: `<div class="table-actions"><button class="btn btn-sm btn-secondary" onclick="AdminCuentas.detalle('${escJsAttr(c.id)}')">Movimientos</button>
               <button class="btn btn-sm btn-secondary" onclick="AdminCuentas.ajustar('${escJsAttr(c.id)}')" title="Corregir el saldo">⚖️</button>

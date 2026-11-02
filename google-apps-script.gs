@@ -63,7 +63,7 @@ const HEADERS = {
     'Notas', 'Items', 'MP_PaymentID', 'MP_Status', 'StockDescontado', 'Origen', 'Cupon'
   ],
   GASTOS: ['ID', 'Fecha', 'Concepto', 'Monto', 'Categoria', 'Notas', 'Tipo', 'ProveedorId', 'Mes', 'Iva',
-    'FechaComprobante', 'Moneda', 'MontoUSD', 'Cotizacion', 'RecurrenteId', 'Origen', 'PedidoId', 'PagadoExterno'],
+    'FechaComprobante', 'Moneda', 'MontoUSD', 'Cotizacion', 'RecurrenteId', 'Origen', 'PedidoId', 'CobroId', 'PagadoExterno'],
   CUENTAS: ['ID', 'Nombre', 'TipoCuenta', 'SaldoInicial', 'ComisionPct', 'Activa', 'Orden', 'Notas'],
   MOVIMIENTOS: ['ID', 'Fecha', 'Tipo', 'Monto', 'CuentaId', 'CuentaDestinoId', 'PedidoId', 'GastoId',
     'ClienteId', 'ProveedorId', 'SocioId', 'TurnoId', 'Nota'],

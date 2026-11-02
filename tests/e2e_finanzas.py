@@ -55,6 +55,7 @@ def ctx_admin(b, mobile=False):
 def ev(pg, js): return pg.evaluate(js)
 def saldo(pg, nombre): return ev(pg, f"Fin.saldoCuenta(Fin.cuentas().find(c=>c.nombre==='{nombre}'))")
 def form(pg, campos):
+    pg.wait_for_selector("#fin-modal.open #fin-form"); pg.wait_for_timeout(120)
     for k, v in campos.items():
         sel = f"#fin-form [name='{k}']"
         tag = pg.eval_on_selector(sel, "e=>e.tagName+'|'+e.type")

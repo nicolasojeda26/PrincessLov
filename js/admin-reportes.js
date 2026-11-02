@@ -189,7 +189,7 @@ const AdminReportes = {
     const movs = Fin.list('movimientos').filter(m => Fin.mesDe(m.fecha) === mes);
     const sum = (tipos, filtro = () => true) => movs.filter(m => tipos.includes(m.tipo) && filtro(m)).reduce((s, m) => s + (Number(m.monto) || 0), 0);
     const enCuenta = m => !!m.cuentaId;
-    const cobros = sum(['cobro'], enCuenta), entregas = sum(['cobro_cuenta'], enCuenta);
+    const cobros = sum(['cobro'], enCuenta) - sum(['devolucion'], enCuenta), entregas = sum(['cobro_cuenta'], enCuenta);
     const sinRegistrar = this.pedidosDelMes(mes).filter(o => Fin.pagoDePedido(o).sinRegistrar).reduce((s, o) => s + (Number(o.total) || 0), 0);
     const pagos = sum(['pago'], enCuenta);
     const pagosViejos = Fin.gastos().filter(g => g.pagadoExterno === true && Fin.mesDe(g.fecha) === mes && g.origen !== 'comision').reduce((s, g) => s + (Number(g.monto) || 0), 0);
@@ -212,7 +212,7 @@ const AdminReportes = {
     return `<p class="rep-intro">La plata que entró y salió de las cuentas cada mes (no importa de qué mes es la venta o el gasto, sino cuándo se cobró o pagó).</p>` +
       this.tablaMensual([
         { sep: 'Ingresos' },
-        { l: 'Cobros de ventas', f: d => d.cobros },
+        { l: 'Cobros de ventas (menos devoluciones)', f: d => d.cobros },
         { l: 'Entregas a cuenta de clientes', f: d => d.entregas },
         { l: 'Ventas cobradas sin cuenta registrada', f: d => d.sinRegistrar, ayuda: 'Pedidos confirmados sin cobro cargado: se toman como cobrados' },
         { l: 'Ingresos totales', f: d => d.ingresos, tipo: 'sub' },
@@ -350,7 +350,7 @@ const AdminReportes = {
       if (this.movs.cuenta) return Fin.efecto(m, this.movs.cuenta);
       const v = Number(m.monto) || 0;
       if (['cobro', 'cobro_cuenta', 'aporte'].includes(m.tipo)) return m.cuentaId ? v : 0;
-      if (['pago', 'retiro'].includes(m.tipo)) return m.cuentaId ? -v : 0;
+      if (['pago', 'retiro', 'devolucion'].includes(m.tipo)) return m.cuentaId ? -v : 0;
       if (m.tipo === 'ajuste') return v;
       return 0;
     };
