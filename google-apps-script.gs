@@ -40,6 +40,7 @@ const SHEET_NAMES = {
   CLUBPRINCE: 'ClubPrince_Leads',
   NEWSLETTER: 'Newsletter',
   ARREPENTIMIENTO: 'Arrepentimiento',
+  BORRADOS: 'Borrados',
 };
 
 const HEADERS = {
@@ -61,6 +62,9 @@ const HEADERS = {
   CLUBPRINCE: ['ID', 'Fecha', 'Nombre', 'Telefono', 'Ciudad', 'Origen', 'Estado', 'Plan'],
   NEWSLETTER: ['ID', 'Fecha', 'Email'],
   ARREPENTIMIENTO: ['ID', 'Fecha', 'Nombre', 'Telefono', 'Email', 'Pedido', 'FechaRecepcion', 'Productos', 'Motivo', 'Estado'],
+  // Registro de lo que se eliminó desde el admin: así un celular o una pestaña
+  // vieja que todavía lo tiene guardado no lo vuelve a subir a la planilla.
+  BORRADOS: ['ID', 'Hoja', 'Fecha'],
 };
 
 // Nombre real de hoja -> clave de HEADERS (antes "ClubPrince_Leads" y
@@ -117,6 +121,10 @@ function doGet(e) {
   }
 }
 
+// Acciones del admin que escriben y no toman el lock por su cuenta
+const LOCK_ACTIONS = ['upsert_product', 'delete_product', 'update_order', 'delete_order',
+  'create_expense', 'delete_expense', 'save_config'];
+
 function doPost(e) {
   let data = {};
   try {
@@ -133,7 +141,14 @@ function doPost(e) {
     if (!esAdmin && !limiteOk(action)) {
       return jsonResponse({ error: 'Demasiadas solicitudes. Probá en unos minutos.' });
     }
+    // Escrituras del admin de a una: buscar la fila y escribir/borrar sin que otra
+    // llamada corra las filas en el medio (antes, borrar 2 productos seguidos
+    // podía borrar uno equivocado y dejar el otro).
+    const conLock = LOCK_ACTIONS.indexOf(action) !== -1;
+    const lock = conLock ? LockService.getScriptLock() : null;
+    if (lock) lock.waitLock(20000);
     let result;
+    try {
     switch (action) {
       // --- públicas (validadas) ---
       case 'create_order': result = createOrder(data.order, esAdmin); break;
@@ -142,18 +157,21 @@ function doPost(e) {
       case 'arrepentimiento': result = createArrepentimiento(data.solicitud || {}); break;
       // --- solo admin ---
       case 'admin_read': result = readSheet(data.sheet || 'pedidos'); break;
-      case 'upsert_product': result = upsertProduct(data.product); break;
+      case 'upsert_product': result = upsertProduct(data.product, data.restaurar === true); break;
       case 'adjust_stock': result = ajustarStock(data.productoId, data.variante, data.delta); break;
       case 'delete_product': result = deleteProduct(data.id); break;
       case 'update_order': result = updateOrder(data.id, data.updates); break;
-      case 'delete_order': result = deleteRowById(SHEET_NAMES.PEDIDOS, data.id); break;
+      case 'delete_order': result = borrarRegistro(SHEET_NAMES.PEDIDOS, data.id); break;
       case 'create_expense': result = createExpense(data.expense); break;
-      case 'delete_expense': result = deleteRowById(SHEET_NAMES.GASTOS, data.id); break;
+      case 'delete_expense': result = borrarRegistro(SHEET_NAMES.GASTOS, data.id); break;
       case 'save_config': result = saveConfig(data.config); break;
       case 'add_dolar_rate': result = addDolarRate(data.valor); break;
       case 'upload_image': result = uploadImage(data.image); break;
       case 'webhook_mp': result = processWebhookMP(data); break;
       default: result = { error: 'Acción no válida' };
+    }
+    } finally {
+      if (lock) lock.releaseLock();
     }
     return jsonResponse(result);
   } catch (error) {
@@ -355,9 +373,15 @@ function searchProducts(query, category) {
   });
 }
 
-function upsertProduct(product) {
+function upsertProduct(product, restaurar) {
   if (!product || !product.nombre) return { error: 'Producto inválido' };
   const sheetName = SHEET_NAMES.PRODUCTOS;
+  // Un producto eliminado no vuelve por una copia vieja de otro navegador.
+  // Solo una importación (restaurar) puede traerlo de nuevo.
+  if (product.id && estaBorrado(sheetName, product.id)) {
+    if (!restaurar) return { borrado: true, id: String(product.id) };
+    quitarBorrado(sheetName, product.id);
+  }
 
   const rowData = {
     ID: product.id || `prod_${Date.now()}`,
@@ -408,7 +432,47 @@ function ajustarStock(productoId, variante, delta) {
 }
 
 function deleteProduct(id) {
-  return deleteRowById(SHEET_NAMES.PRODUCTOS, id);
+  return borrarRegistro(SHEET_NAMES.PRODUCTOS, id);
+}
+
+/**
+ * Borra la fila y deja constancia en la hoja Borrados.
+ * Si ya no estaba (otro celular lo borró antes), cuenta como borrado igual.
+ */
+function borrarRegistro(sheetName, id) {
+  if (!id) return { error: 'Falta el ID' };
+  // Borra todas las filas con ese ID (si alguna vez se duplicó, que no quede ninguna)
+  let borradas = 0;
+  while (borradas < 50 && deleteRowById(sheetName, id).success) borradas++;
+  registrarBorrado(sheetName, id);
+  return { success: true, borradas: borradas };
+}
+
+function idsBorrados(sheetName) {
+  const sheet = getSheet(SHEET_NAMES.BORRADOS);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  return sheet.getRange(2, 1, lastRow - 1, 2).getValues()
+    .filter(function (r) { return String(r[1]) === sheetName; })
+    .map(function (r) { return String(r[0]); });
+}
+
+function estaBorrado(sheetName, id) {
+  return idsBorrados(sheetName).indexOf(String(id)) !== -1;
+}
+
+function registrarBorrado(sheetName, id) {
+  if (estaBorrado(sheetName, id)) return;
+  const sheet = getSheet(SHEET_NAMES.BORRADOS);
+  sheet.getRange(sheet.getLastRow() + 1, 1, 1, 3).setValues([[String(id), sheetName, new Date().toISOString()]]);
+}
+
+function quitarBorrado(sheetName, id) {
+  const sheet = getSheet(SHEET_NAMES.BORRADOS);
+  for (let row = sheet.getLastRow(); row >= 2; row--) {
+    const r = sheet.getRange(row, 1, 1, 2).getValues()[0];
+    if (String(r[0]) === String(id) && String(r[1]) === sheetName) sheet.deleteRow(row);
+  }
 }
 
 // ============================================
@@ -433,6 +497,8 @@ function createOrder(order, esAdmin) {
     if (!limpio(order.cliente, 80) || tel.length < 8 || tel.length > 15) return { error: 'Faltan datos del cliente' };
   }
   if (!id) id = 'ord_' + Date.now();
+  // Un pedido eliminado no vuelve por la copia vieja de otro navegador
+  if (esAdmin && estaBorrado(sheetName, id)) return { borrado: true, id: id };
 
   const itemsRaw = Array.isArray(order.items) ? order.items.slice(0, 40) : [];
   const items = itemsRaw.map(function (it) {
@@ -530,6 +596,7 @@ function updateOrder(id, updates) {
 
 function createExpense(expense) {
   const id = expense.id || `exp_${Date.now()}`;
+  if (expense.id && estaBorrado(SHEET_NAMES.GASTOS, id)) return { borrado: true, id: String(id) };
   const rowData = {
     ID: id,
     Fecha: expense.fecha || new Date().toISOString(),
