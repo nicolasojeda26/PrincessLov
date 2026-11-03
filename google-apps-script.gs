@@ -463,7 +463,8 @@ function estaBorrado(sheetName, id) {
 
 function registrarBorrado(sheetName, id) {
   if (estaBorrado(sheetName, id)) return;
-  getSheet(SHEET_NAMES.BORRADOS).appendRow([String(id), sheetName, new Date().toISOString()]);
+  const sheet = getSheet(SHEET_NAMES.BORRADOS);
+  sheet.getRange(sheet.getLastRow() + 1, 1, 1, 3).setValues([[String(id), sheetName, new Date().toISOString()]]);
 }
 
 function quitarBorrado(sheetName, id) {
