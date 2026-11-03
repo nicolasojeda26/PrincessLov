@@ -85,6 +85,116 @@ const AdminSync = {
     this.sincronizar(true);
   },
 
+  /* ---------- Bajas (eliminar) ----------
+     Antes la baja se mandaba una sola vez y sin esperar: si fallaba (Apps Script
+     dormido, señal del celu) o si justo había una sincronización en curso, el
+     producto volvía a aparecer, y la sincronización siguiente lo subía otra vez a
+     la planilla como si fuera nuevo. Ahora cada baja queda anotada en este
+     navegador hasta que la planilla la confirma, se reintenta en cada
+     sincronización y lo que figura como eliminado nunca se vuelve a subir. */
+  BAJAS_KEY: 'pl_admin_bajas',
+  BAJA_ACCION: { productos: 'delete_product', pedidos: 'delete_order', gastos: 'delete_expense' },
+  BAJA_RECORDAR_MS: 24 * 60 * 60 * 1000,
+
+  leerBajas() {
+    let b = {};
+    try { b = JSON.parse(localStorage.getItem(this.BAJAS_KEY) || '{}') || {}; } catch {}
+    ['productos', 'pedidos', 'gastos'].forEach(t => { if (!b[t] || typeof b[t] !== 'object') b[t] = {}; });
+    return b;
+  },
+
+  /** Mapa de bajas de un tipo (productos, pedidos, gastos o 'fin:<hoja>' de Finanzas) */
+  _bajasDe(b, tipo) {
+    if (!b[tipo] || typeof b[tipo] !== 'object') b[tipo] = {};
+    return b[tipo];
+  },
+
+  guardarBajas(b) {
+    // Las confirmadas se recuerdan un día (por si una lectura vieja las trae de vuelta)
+    const ahora = Date.now();
+    Object.values(b).forEach(m => Object.keys(m).forEach(id => {
+      if (m[id].ok && ahora - m[id].ok > this.BAJA_RECORDAR_MS) delete m[id];
+    }));
+    try { localStorage.setItem(this.BAJAS_KEY, JSON.stringify(b)); } catch {}
+  },
+
+  anotarBaja(tipo, id) {
+    if (!id) return;
+    const b = this.leerBajas();
+    this._bajasDe(b, tipo)[String(id)] = { desde: Date.now() };
+    this.guardarBajas(b);
+  },
+
+  confirmarBaja(tipo, id) {
+    const b = this.leerBajas();
+    const m = this._bajasDe(b, tipo);
+    if (m[String(id)]) m[String(id)] = { ok: Date.now() };
+    this.guardarBajas(b);
+  },
+
+  olvidarBaja(tipo, id) {
+    const b = this.leerBajas();
+    delete this._bajasDe(b, tipo)[String(id)];
+    this.guardarBajas(b);
+  },
+
+  /** IDs eliminados en este navegador (pendientes o recién confirmados) */
+  idsBajas(tipo) {
+    return new Set(Object.keys(this.leerBajas()[tipo] || {}));
+  },
+
+  pendientesDeBaja() {
+    const b = this.leerBajas();
+    const lista = [];
+    Object.keys(b).forEach(t => Object.keys(b[t]).forEach(id => { if (!b[t][id].ok) lista.push({ tipo: t, id }); }));
+    return lista;
+  },
+
+  /** Manda la baja a la planilla. Devuelve true si quedó hecha. */
+  async enviarBaja(tipo, id) {
+    const res = tipo.startsWith('fin:')
+      ? await this.post('fin_delete', { sheet: tipo.slice(4), id })
+      : await this.post(this.BAJA_ACCION[tipo], { id });
+    // "No encontrado" (Apps Script viejo) = ya no está en la planilla: está bien
+    if (res && (res.success || /no encontrado/i.test(res.error || ''))) {
+      this.confirmarBaja(tipo, id);
+      return true;
+    }
+    return false;
+  },
+
+  publicarBaja(tipo, id, etiqueta) {
+    this.anotarBaja(tipo, id);
+    if (!this.habilitado()) return;
+    this.enviarBaja(tipo, id)
+      .then(() => { this.errores = 0; this.ultimaSync = new Date(); this.pintarEstado(); })
+      .catch(err => {
+        if (/no encontrado/i.test(err.message)) { this.confirmarBaja(tipo, id); return; }
+        this.errores++;
+        this.pintarEstado();
+        const msg = /autorizado/i.test(err.message) ? 'token inválido' : err.message;
+        AdminApp.toast(`⚠️ Todavía no se pudo eliminar ${etiqueta} de la tienda (${msg}). Se vuelve a intentar solo.`, 'error');
+      });
+  },
+
+  /** Reintenta las bajas que no llegaron a la planilla */
+  async reintentarBajas() {
+    for (const { tipo, id } of this.pendientesDeBaja()) {
+      try { await this.enviarBaja(tipo, id); }
+      catch (err) { if (/no encontrado/i.test(err.message)) this.confirmarBaja(tipo, id); }
+    }
+  },
+
+  /** El servidor avisó que ese registro fue eliminado (en otro celu/compu): se saca de acá */
+  quitarLocal(tipo, id) {
+    this._silencio = true;
+    try {
+      if (tipo === 'productos') AdminData.saveProducts(AdminData.getProducts().filter(p => String(p.id) !== String(id)));
+      if (tipo === 'pedidos') AdminData.saveOrders(AdminData.getOrders().filter(o => String(o.id) !== String(id)));
+      if (tipo === 'gastos') AdminData.saveExpenses(AdminData.getExpenses().filter(g => String(g.id) !== String(id)));
+    } finally { this._silencio = false; }
+  },
+
   /* ---------- Llamadas ---------- */
   async post(action, data) {
     if (!this.habilitado()) return null;
@@ -94,10 +204,13 @@ const AdminSync = {
   },
 
   /** Publica un cambio sin bloquear la UI; avisa si falla */
-  publicar(action, data, etiqueta) {
+  publicar(action, data, etiqueta, alTerminar) {
     if (!this.habilitado()) return;
     this.post(action, data)
-      .then(() => { this.errores = 0; this.ultimaSync = new Date(); this.pintarEstado(); })
+      .then((res) => {
+        this.errores = 0; this.ultimaSync = new Date(); this.pintarEstado();
+        if (alTerminar) { try { alTerminar(res); } catch (e) { console.warn('[AdminSync]', e); } }
+      })
       .catch(err => {
         this.errores++;
         this.pintarEstado();
@@ -216,40 +329,53 @@ const AdminSync = {
     }
     this.badge('local', '⏳ Sincronizando…');
     try {
+      await this.reintentarBajas();
       const [prods, pedidos, gastos, leads, config] = await Promise.all([
         this.leer('productos'), this.leer('pedidos'), this.leer('gastos'),
         this.leer('clubprince'), this.leer('config'),
       ]);
 
-      // Productos: la planilla manda; lo que solo existía acá se sube
-      const remotos = prods.filter(r => r.ID).map(r => this.productoDesdeHoja(r));
+      // Lo eliminado acá (todavía sin confirmar, o recién) no vuelve a aparecer
+      // aunque la lectura sea de un momento antes de la baja
+      const bajasProd = this.idsBajas('productos');
+      const bajasPed = this.idsBajas('pedidos');
+      const bajasGas = this.idsBajas('gastos');
+
+      // Productos: la planilla manda; lo que solo existía acá se sube,
+      // salvo que la planilla diga que se eliminó (en otro celu/compu)
+      const remotos = prods.filter(r => r.ID && !bajasProd.has(String(r.ID))).map(r => this.productoDesdeHoja(r));
       const idsRemotos = new Set(remotos.map(p => p.id));
-      const soloLocales = AdminData.getProducts().filter(p => !idsRemotos.has(String(p.id)));
-      for (const p of soloLocales) {
-        await this.post('upsert_product', { product: SheetsService.serializeForSheets(p) });
+      const soloLocales = [];
+      for (const p of AdminData.getProducts().filter(p => !idsRemotos.has(String(p.id)) && !bajasProd.has(String(p.id)))) {
+        const res = await this.post('upsert_product', { product: SheetsService.serializeForSheets(p) });
+        if (!(res && res.borrado)) soloLocales.push(p);
       }
       AdminData.saveProducts([...remotos, ...soloLocales]);
 
       // Pedidos
-      const pedRemotos = pedidos.filter(r => r.ID).map(r => this.pedidoDesdeHoja(r));
+      const pedRemotos = pedidos.filter(r => r.ID && !bajasPed.has(String(r.ID))).map(r => this.pedidoDesdeHoja(r));
       const idsPed = new Set(pedRemotos.map(o => o.id));
-      const pedLocales = AdminData.getOrders().filter(o => !idsPed.has(String(o.id)));
-      for (const o of pedLocales) {
-        await this.post('create_order', { order: { ...o, origen: o.origen || 'admin' } });
+      const pedLocales = [];
+      for (const o of AdminData.getOrders().filter(o => !idsPed.has(String(o.id)) && !bajasPed.has(String(o.id)))) {
+        const res = await this.post('create_order', { order: { ...o, origen: o.origen || 'admin' } });
+        if (res && res.borrado) continue;
         await this.post('update_order', { id: o.id, updates: this.pedidoParaHoja(o) });
+        pedLocales.push(o);
       }
       AdminData.saveOrders([...pedRemotos, ...pedLocales]);
 
       // Gastos
-      const gasRemotos = gastos.filter(r => r.ID).map(r => this.gastoDesdeHoja(r));
+      const gasRemotos = gastos.filter(r => r.ID && !bajasGas.has(String(r.ID))).map(r => this.gastoDesdeHoja(r));
       const idsGas = new Set(gasRemotos.map(g => g.id));
-      const gasLocales = AdminData.getExpenses().filter(g => !idsGas.has(String(g.id)));
+      const gasLocales = [];
       // Finanzas: cuentas, movimientos, socios, proveedores, clientes y caja
       let fin = {};
       try { fin = await Fin.sincronizar(); } catch (e) { console.warn('[Fin] sync', e); }
-      for (const g of gasLocales) {
-        if (Fin.remotoOk) await this.post('fin_upsert', { sheet: 'gastos', row: Fin.toRow(g) });
-        else await this.post('create_expense', { expense: g });
+      for (const g of AdminData.getExpenses().filter(g => !idsGas.has(String(g.id)) && !bajasGas.has(String(g.id)))) {
+        const res = Fin.remotoOk
+          ? await this.post('fin_upsert', { sheet: 'gastos', row: Fin.toRow(g) })
+          : await this.post('create_expense', { expense: g });
+        if (!(res && res.borrado)) gasLocales.push(g);
       }
       this._finViejo = !!fin.actualizar;
       AdminData.saveExpenses([...gasRemotos, ...gasLocales]);
@@ -329,16 +455,24 @@ const AdminSync = {
         return res;
       };
     };
-    const prod = (p) => p && self.publicar('upsert_product', { product: SheetsService.serializeForSheets(p) }, `"${p.nombre}"`);
+    const prod = (p) => p && self.publicar('upsert_product', { product: SheetsService.serializeForSheets(p) }, `"${p.nombre}"`, (res) => {
+      if (!res || !res.borrado) return;
+      // Se eliminó desde otro celu/compu: no se vuelve a crear
+      self.quitarLocal('productos', p.id);
+      AdminApp.toast(`"${p.nombre}" ya había sido eliminado (desde otro dispositivo), así que no se guardó`, 'error');
+      try { AdminApp.renderSection(AdminApp.currentSection); } catch {}
+    });
 
     wrap('addProduct', (p) => prod(p));
     wrap('updateProduct', (p) => prod(p));
-    wrap('deleteProduct', (_r, _a, id) => self.publicar('delete_product', { id }, 'la baja del producto'));
+    wrap('deleteProduct', (_r, _a, id) => self.publicarBaja('productos', id, 'el producto'));
     wrap('importProducts', () => {
       const prods = AdminData.getProducts();
       (async () => {
         for (const p of prods) {
-          try { await self.post('upsert_product', { product: SheetsService.serializeForSheets(p) }); } catch (e) { self.errores++; }
+          // Importar es a propósito: puede traer de vuelta un producto eliminado
+          self.olvidarBaja('productos', p.id);
+          try { await self.post('upsert_product', { product: SheetsService.serializeForSheets(p), restaurar: true }); } catch (e) { self.errores++; }
         }
         self.pintarEstado();
         if (self.habilitado()) AdminApp.toast(self.errores ? '⚠️ Algunos productos no se publicaron' : '✅ Importación publicada en la tienda');
@@ -351,10 +485,10 @@ const AdminSync = {
         .catch(e => AdminApp.toast('⚠️ El pedido no se guardó en la planilla: ' + e.message, 'error'));
     });
     wrap('updateOrder', (o) => o && self.publicar('update_order', { id: o.id, updates: self.pedidoParaHoja(o) }, 'el pedido'));
-    wrap('deleteOrder', (_r, _a, id) => self.publicar('delete_order', { id }, 'la baja del pedido'));
+    wrap('deleteOrder', (_r, _a, id) => self.publicarBaja('pedidos', id, 'el pedido'));
     wrap('addExpense', (g) => self.publicarGasto(g, 'el gasto'));
     wrap('updateExpense', (g) => self.publicarGasto(g, 'el gasto'));
-    wrap('deleteExpense', (_r, _a, id) => self.publicar('delete_expense', { id }, 'la baja del gasto'));
+    wrap('deleteExpense', (_r, _a, id) => self.publicarBaja('gastos', id, 'el gasto'));
     wrap('saveCategorias', () => self.publicar('save_config', { config: { categorias: JSON.stringify(AdminData.getEffectiveCategorias()) } }, 'las categorías'));
     wrap('resetCategorias', () => self.publicar('save_config', { config: { categorias: '' } }, 'las categorías'));
     wrap('saveContenido', () => self.publicar('save_config', { config: { contenido: JSON.stringify(AdminData.getContenido() || {}) } }, 'los textos del home'));

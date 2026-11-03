@@ -151,5 +151,37 @@ test('público: no puede leer finanzas ni pedidos', () => {
   assert.match(post('admin_read', { sheet: 'cuentas' }, '').error, /autorizado/);
 });
 
+test('eliminar producto: no vuelve por la copia vieja de otro celu', () => {
+  assert.equal(post('upsert_product', { product: { id: 'pz', nombre: 'Calza Z', precioUSD: 5, stock: 1 } }).success, true);
+  assert.equal(post('delete_product', { id: 'pz' }).success, true);
+  assert.ok(!filas('Productos').some(f => String(f.ID) === 'pz'));
+  const r = post('upsert_product', { product: { id: 'pz', nombre: 'Calza Z', precioUSD: 5, stock: 1 } });
+  assert.equal(r.borrado, true);
+  assert.ok(!filas('Productos').some(f => String(f.ID) === 'pz'));
+  // borrar dos veces no da error (otro celu ya lo había borrado)
+  assert.equal(post('delete_product', { id: 'pz' }).success, true);
+  assert.equal(filas('Borrados').filter(f => f.ID === 'pz').length, 1);
+});
+test('eliminar producto: importar a propósito lo trae de vuelta', () => {
+  const r = post('upsert_product', { product: { id: 'pz', nombre: 'Calza Z', precioUSD: 5, stock: 1 }, restaurar: true });
+  assert.equal(r.success, true);
+  assert.ok(filas('Productos').some(f => String(f.ID) === 'pz'));
+  assert.equal(filas('Borrados').filter(f => f.ID === 'pz').length, 0);
+});
+test('fin_delete: lo borrado no vuelve con fin_upsert', () => {
+  assert.equal(post('fin_upsert', { sheet: 'clientes', row: { ID: 'cli_x', Nombre: 'Ana' } }).success, true);
+  assert.equal(post('fin_delete', { sheet: 'clientes', id: 'cli_x' }).success, true);
+  assert.equal(post('fin_upsert', { sheet: 'clientes', row: { ID: 'cli_x', Nombre: 'Ana' } }).borrado, true);
+  assert.ok(!filas('Clientes').some(f => f.ID === 'cli_x'));
+});
+test('pedido y gasto eliminados no vuelven desde el admin', () => {
+  assert.equal(post('create_expense', { expense: { id: 'g1', concepto: 'Bolsas', monto: 100 } }).success, true);
+  assert.equal(post('delete_expense', { id: 'g1' }).success, true);
+  assert.equal(post('create_expense', { expense: { id: 'g1', concepto: 'Bolsas', monto: 100 } }).borrado, true);
+  assert.equal(post('create_order', { order: { id: 'ord_z', cliente: 'Ana', estado: 'confirmado' } }).success, true);
+  assert.equal(post('delete_order', { id: 'ord_z' }).success, true);
+  assert.equal(post('create_order', { order: { id: 'ord_z', cliente: 'Ana', estado: 'confirmado' } }).borrado, true);
+});
+
 console.log(`\n${pasaron} pasaron, ${fallaron} fallaron\n`);
 process.exit(fallaron ? 1 : 0);

@@ -70,7 +70,8 @@ const Fin = {
 
   remove(col, id) {
     this._saveAll(col, this.list(col).filter(x => String(x.id) !== String(id)));
-    if (this.puedePublicar()) AdminSync.publicar('fin_delete', { sheet: col, id }, 'la baja');
+    // La baja queda anotada hasta que la planilla la confirma (se reintenta sola)
+    if (this.puedePublicar()) AdminSync.publicarBaja('fin:' + col, id, 'la baja');
     this.avisar();
   },
 
@@ -120,12 +121,19 @@ const Fin = {
     for (const col of Object.keys(this.SCHEMAS)) {
       const sc = this.SCHEMAS[col];
       const filas = await AdminSync.leer(col);
-      const remotos = filas.filter(r => r.ID).map(r => this.fromRow(r, sc.num, sc.bool));
+      // Lo eliminado acá no vuelve aunque otra copia o una lectura vieja lo traiga
+      const bajas = AdminSync.idsBajas('fin:' + col);
+      const remotos = filas.filter(r => r.ID && !bajas.has(String(r.ID))).map(r => this.fromRow(r, sc.num, sc.bool));
       const ids = new Set(remotos.map(r => r.id));
-      let locales = this.list(col).filter(x => !ids.has(String(x.id)));
+      let locales = this.list(col).filter(x => !ids.has(String(x.id)) && !bajas.has(String(x.id)));
       // Las 3 cuentas de fábrica solo se suben si la planilla no tiene ninguna (si no, se duplican entre celus)
       if (col === 'cuentas' && remotos.length) locales = locales.filter(x => !['cta_efectivo', 'cta_mp', 'cta_banco'].includes(String(x.id)));
-      for (const o of locales) { await AdminSync.post('fin_upsert', { sheet: col, row: this.toRow(o) }); subidos++; }
+      const subir = locales; locales = [];
+      for (const o of subir) {
+        const res = await AdminSync.post('fin_upsert', { sheet: col, row: this.toRow(o) });
+        if (res && res.borrado) continue; // se eliminó en otro celu/compu
+        locales.push(o); subidos++;
+      }
       this._saveAll(col, [...remotos, ...locales]);
     }
     return { subidos };
