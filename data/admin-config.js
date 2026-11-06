@@ -13,10 +13,11 @@ const ADMIN_CONFIG = {
     otros: 0,
   },
 
-  // Costos variables por producto (en USD, se suman al precio de costo)
+  // Costos variables por producto (en pesos, se suman al costo)
   costosVariables: {
-    envoltorio: 0.50,   // USD por unidad
-    etiqueta: 0.10,     // USD por unidad
+    envoltorio: 785,    // $ por unidad
+    etiqueta: 157,      // $ por unidad
+    moneda: 'ARS',
     comisionMP: 0.046,  // 4.6% Mercado Pago
     comisionEnvio: 0,   // % adicional por envío (si lo absorbés)
   },
@@ -29,6 +30,15 @@ const ADMIN_CONFIG = {
     { id: 'enviado',     label: 'Enviado',       color: '#10B981', icon: '🚚' },
     { id: 'entregado',   label: 'Entregado',     color: '#059669', icon: '🎉' },
     { id: 'cancelado',   label: 'Cancelado',     color: '#EF4444', icon: '❌' },
+  ],
+
+  // Por dónde llegó la venta (los pedidos de la web llegan solos con 'web-whatsapp')
+  origenesVenta: [
+    { id: 'whatsapp',     label: 'WhatsApp',          icon: '💬' },
+    { id: 'instagram',    label: 'Instagram',         icon: '📸' },
+    { id: 'local',        label: 'En persona',        icon: '🏬' },
+    { id: 'web-whatsapp', label: 'Web',               icon: '🌐' },
+    { id: 'admin',        label: 'Otro',              icon: '📝' },
   ],
 
   // Medios de pago

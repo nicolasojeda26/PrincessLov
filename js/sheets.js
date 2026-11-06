@@ -23,12 +23,9 @@ function appsScriptConfigurado() {
 
 const SheetsService = {
   productos: [],
-  cotizacionDolar: null,
   lastFetch: null,
   cache: null,
   cacheExpiry: 5 * 60 * 1000, // 5 min cache
-  dolarCacheAt: null,
-  dolarFetching: null,
   
   // URL del Google Apps Script Web App (configurar en Vercel env o data/config.js)
   appsScriptUrl: null,
@@ -141,10 +138,8 @@ const SheetsService = {
         subcategoria: p.Subcategoria || '',
         descripcion: p.Descripcion || '',
         descripcionCorta: p.DescripcionCorta || '',
-        precioUSD: parseFloat(p.PrecioUSD) || 0,
-        precioARSManual: p.PrecioARSManual ? parseFloat(p.PrecioARSManual) : null,
+        ...this.preciosEnPesos(p),
         precioOferta: p.PrecioOferta ? parseFloat(p.PrecioOferta) : null,
-        margenPersonalizado: p.MargenPersonalizado ? parseFloat(p.MargenPersonalizado) / 100 : null,
         imagen: p.Imagen || CONFIG.imagenes.placeholder,
         stock: parseInt(p.Stock) || 0,
         stockMin: parseInt(p.StockMin) || 5,
@@ -179,10 +174,8 @@ const SheetsService = {
         subcategoria: p['Subcategoria'] || '',
         descripcion: p['Descripcion'] || '',
         descripcionCorta: '',
-        precioUSD: parseFloat(p['PrecioUSD']) || 0,
-        precioARSManual: null,
+        ...this.preciosEnPesos({ PrecioUSD: p['PrecioUSD'], PrecioARSManual: p['PrecioARSManual'] }),
         precioOferta: null,
-        margenPersonalizado: null,
         imagen: p['Imagen'] || CONFIG.imagenes.placeholder,
         stock: parseInt(p['Stock']) || 0,
         stockMin: 5,
@@ -296,7 +289,7 @@ const SheetsService = {
     if (!Array.isArray(this._ultimoRawProductos) || !this._ultimoRawProductos.length) return;
     try {
       localStorage.setItem(this.CACHE_LOCAL_KEY, JSON.stringify({
-        t: Date.now(), config: config || null, productos: this._ultimoRawProductos, dolar: this.cotizacionDolar || null,
+        t: Date.now(), config: config || null, productos: this._ultimoRawProductos,
       }));
     } catch (e) { /* storage lleno o bloqueado: no pasa nada */ }
   },
@@ -305,7 +298,6 @@ const SheetsService = {
   async aplicarCacheLocal(c) {
     if (c.config) await this.cargarConfigPublica({ remote: c.config });
     this.productos = this.mapAppsScriptProducts(c.productos);
-    if (c.dolar > 0) this.cotizacionDolar = c.dolar;
   },
 
   setCache(data) {
@@ -336,74 +328,81 @@ const SheetsService = {
   },
 
   /**
-   * Obtiene cotización del dólar - Apps Script > CriptoYa > Manual
+   * Todos los precios de la tienda son en pesos (nov/2026): el dólar ya no se consulta.
+   * Este valor fijo solo sirve para pasar a pesos datos viejos que estaban cargados en
+   * USD (productos, cajas del Club Prince, preventas) hasta que se vuelvan a guardar.
    */
-  async obtenerCotizacion() {
-    if (!CONFIG.cotizacion.autoCotizacion) {
-      this.cotizacionDolar = CONFIG.cotizacion.cotizacionManual;
-      return this.cotizacionDolar;
-    }
-
-    // Cache de 5 min: evitar llamadas repetidas a la API por render
-    const now = Date.now();
-    if (this.cotizacionDolar && this.dolarCacheAt && (now - this.dolarCacheAt) < this.cacheExpiry) {
-      return this.cotizacionDolar;
-    }
-    // Si ya hay una búsqueda en vuelo, reutilizarla
-    if (this.dolarFetching) {
-      return this.dolarFetching;
-    }
-
-    this.dolarFetching = this._fetchCotizacion().finally(() => { this.dolarFetching = null; });
-    return this.dolarFetching;
-  },
-
-  async _fetchCotizacion() {
-    // 1. Apps Script (si tiene historial propio)
-    if (this.appsScriptUrl) {
-      try {
-        const data = await this.fetchFromAppsScript('dolar');
-        if (data && data.length > 0) {
-          const latest = data[data.length - 1];
-          this.cotizacionDolar = parseFloat(latest.Valor) || CONFIG.cotizacion.cotizacionManual;
-          this.dolarCacheAt = Date.now();
-          return this.cotizacionDolar;
-        }
-      } catch (e) {
-        console.warn('[Dólar] Apps Script falló:', e.message);
-      }
-    }
-
-    // 2. CriptoYa API
-    try {
-      const response = await fetch(CONFIG.sheets.dolarUrl);
-      const data = await response.json();
-      this.cotizacionDolar = data.oficial?.ask || data.blue?.ask || CONFIG.cotizacion.cotizacionManual;
-      this.dolarCacheAt = Date.now();
-      return this.cotizacionDolar;
-    } catch (error) {
-      console.warn('[Dólar] CriptoYa falló:', error.message);
-    }
-
-    // 3. Manual
-    this.cotizacionDolar = CONFIG.cotizacion.cotizacionManual;
-    this.dolarCacheAt = Date.now();
-    return this.cotizacionDolar;
+  dolarConversion() {
+    return Number(CONFIG?.cotizacion?.dolarConversion) || 1570;
   },
 
   /**
-   * Calcula precio ARS con soporte para precio manual, oferta y margen personalizado
+   * Precio y costo de un producto de la planilla, siempre en pesos.
+   * Si el producto todavía tiene el costo viejo en USD (columna PrecioUSD) y no tiene
+   * precio en pesos, se pasa a pesos con el dólar de conversión. Al guardarlo desde el
+   * admin queda todo en pesos y PrecioUSD en 0.
    */
-  calcularPrecioARS(precioUSD, producto = null) {
-    if (!this.cotizacionDolar) this.cotizacionDolar = CONFIG.cotizacion.cotizacionManual;
-    
-    // Si el producto tiene precio ARS manual fijo, usar ese
+  preciosEnPesos(p) {
+    const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
+    const usdViejo = num(p.PrecioUSD);
+    const gananciaPct = p.GananciaPct !== undefined && p.GananciaPct !== '' && p.GananciaPct !== null && !isNaN(parseFloat(p.GananciaPct)) ? parseFloat(p.GananciaPct) : null;
+    const margenPersonalizado = p.MargenPersonalizado ? parseFloat(p.MargenPersonalizado) / 100 : null;
+    let costoARS = num(p.CostoARS);
+    if (!(costoARS > 0) && usdViejo > 0 && String(p.CostoMoneda || '').toUpperCase() !== 'ARS') {
+      costoARS = Math.round(usdViejo * this.dolarConversion());
+    }
+    let precioARSManual = num(p.PrecioARSManual) > 0 ? num(p.PrecioARSManual) : null;
+    if (!precioARSManual && usdViejo > 0) {
+      precioARSManual = this.redondearPrecio(usdViejo * this.dolarConversion() * this.factorGanancia({ gananciaPct, margenPersonalizado })) || null;
+    }
+    return { precioUSD: 0, precioARSManual, costoARS: Math.round(costoARS) || 0, costoMoneda: 'ARS', gananciaPct, margenPersonalizado };
+  },
+
+  /**
+   * Precio de venta en pesos de un producto. Todos los productos tienen su precio fijo en
+   * pesos (precioARSManual). El primer parámetro queda por compatibilidad con datos viejos
+   * en USD (cajas del Club Prince o preventas sin precio en pesos).
+   */
+  /** Precio de venta en pesos de un producto (con el respaldo de datos viejos en USD) */
+  precioARS(producto) {
+    return this.calcularPrecioARS(producto?.precioUSD, producto);
+  },
+
+  calcularPrecioARS(usdViejo, producto = null) {
     if (producto?.precioARSManual) return producto.precioARSManual;
-    
-    // Calcular con margen (personalizado o global)
-    const margen = producto?.margenPersonalizado ?? CONFIG.cotizacion.margenGanancia;
-    const precio = precioUSD * this.cotizacionDolar * margen;
-    return Math.round(precio);
+    const usd = Number(usdViejo) || 0;
+    if (!(usd > 0)) return 0;
+    return this.redondearPrecio(usd * this.dolarConversion() * this.factorGanancia(producto));
+  },
+
+  /**
+   * Multiplicador de ganancia de un producto:
+   * - gananciaPct (nuevo, oct/2026): 30 → ×1,30
+   * - margenPersonalizado (viejo): se usa tal cual estaba
+   * - si no tiene ninguno: el margen global (1,30 = 30%)
+   */
+  factorGanancia(producto) {
+    const g = producto?.gananciaPct;
+    if (g !== null && g !== undefined && g !== '' && Number(g) >= 0) return 1 + Number(g) / 100;
+    return producto?.margenPersonalizado ?? CONFIG.cotizacion.margenGanancia;
+  },
+
+  /** Redondea hacia arriba al múltiplo configurado (CONFIG.cotizacion.redondeo; 0 = sin redondeo) */
+  redondearPrecio(n) {
+    const v = Math.round(Number(n) || 0);
+    if (v <= 0) return 0;
+    const paso = Number(CONFIG?.cotizacion?.redondeo) || 0;
+    return paso > 0 ? Math.ceil(v / paso) * paso : v;
+  },
+
+  /**
+   * Precio de venta a partir del costo en pesos y el % de ganancia, redondeado.
+   * Lo usa el admin para mostrar y guardar el precio de los productos.
+   */
+  precioDesdeCosto({ costo, gananciaPct }) {
+    const c = Number(costo) || 0;
+    if (c <= 0) return 0;
+    return this.redondearPrecio(c * this.factorGanancia({ gananciaPct }));
   },
 
   formatPrecioARS(precio) {
@@ -413,10 +412,6 @@ const SheetsService = {
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
     }).format(precio || 0);
-  },
-
-  formatPrecioUSD(precio) {
-    return 'USD ' + new Intl.NumberFormat('en-US', { minimumFractionDigits: 2 }).format(precio || 0);
   },
 
   generarId() {
@@ -492,7 +487,7 @@ const SheetsService = {
   /** ¿El producto está en oferta? (precio de oferta o flash sale más barato que el normal) */
   enOferta(p) {
     if (!p) return false;
-    const base = this.calcularPrecioARS(p.precioUSD, p);
+    const base = this.precioARS(p);
     const vista = (typeof PromoEngine !== 'undefined' && PromoEngine.precioVistaARS) ? PromoEngine.precioVistaARS(p) : base;
     return vista > 0 && vista < base;
   },
@@ -603,6 +598,11 @@ const SheetsService = {
   },
 
   serializeForSheets(p) {
+    // Un producto viejo con costo en USD se guarda ya pasado a pesos (nunca sin precio)
+    const viejo = Number(p.precioUSD) > 0 ? this.preciosEnPesos({
+      PrecioUSD: p.precioUSD, PrecioARSManual: p.precioARSManual, CostoARS: p.costoARS, CostoMoneda: p.costoMoneda,
+      GananciaPct: p.gananciaPct, MargenPersonalizado: p.margenPersonalizado ? p.margenPersonalizado * 100 : '',
+    }) : null;
     return {
       id: p.id,
       nombre: p.nombre,
@@ -611,10 +611,13 @@ const SheetsService = {
       subcategoria: p.subcategoria || '',
       descripcion: p.descripcion || '',
       descripcionCorta: p.descripcionCorta || '',
-      precioUSD: p.precioUSD,
-      precioARSManual: p.precioARSManual,
+      precioUSD: 0, // todo en pesos (nov/2026)
+      precioARSManual: viejo ? viejo.precioARSManual : p.precioARSManual,
       precioOferta: p.precioOferta,
       margenPersonalizado: p.margenPersonalizado ? p.margenPersonalizado * 100 : null,
+      gananciaPct: p.gananciaPct ?? null,
+      costoMoneda: 'ARS',
+      costoARS: viejo ? viejo.costoARS : (Number(p.costoARS) || 0),
       imagen: p.imagen,
       stock: p.stock,
       stockMin: p.stockMin || 5,
@@ -722,7 +725,7 @@ const SheetsService = {
       if (remote.instagram) CONFIG.negocio.instagram = String(remote.instagram).replace(/^@/, '');
       if (remote.nombre) CONFIG.negocio.nombre = String(remote.nombre);
       if (Number(remote.margen) > 0) CONFIG.cotizacion.margenGanancia = Number(remote.margen);
-      if (Number(remote.dolarManual) > 0) CONFIG.cotizacion.cotizacionManual = Number(remote.dolarManual);
+      if (remote.redondeo !== undefined && remote.redondeo !== '' && Number(remote.redondeo) >= 0) CONFIG.cotizacion.redondeo = Number(remote.redondeo);
       return remote;
     } catch (e) {
       console.warn('[Sheets] config pública no disponible:', e.message);
@@ -768,8 +771,6 @@ const SheetsService = {
   async refrescarTodo() {
     this.invalidateCache();
     await this.cargarProductos(true);
-    this.cotizacionDolar = null;
-    await this.obtenerCotizacion();
   },
 };
 

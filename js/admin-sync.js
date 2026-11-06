@@ -103,6 +103,12 @@ const AdminSync = {
     return b;
   },
 
+  /** Mapa de bajas de un tipo (productos, pedidos, gastos o 'fin:<hoja>' de Finanzas) */
+  _bajasDe(b, tipo) {
+    if (!b[tipo] || typeof b[tipo] !== 'object') b[tipo] = {};
+    return b[tipo];
+  },
+
   guardarBajas(b) {
     // Las confirmadas se recuerdan un día (por si una lectura vieja las trae de vuelta)
     const ahora = Date.now();
@@ -115,19 +121,20 @@ const AdminSync = {
   anotarBaja(tipo, id) {
     if (!id) return;
     const b = this.leerBajas();
-    b[tipo][String(id)] = { desde: Date.now() };
+    this._bajasDe(b, tipo)[String(id)] = { desde: Date.now() };
     this.guardarBajas(b);
   },
 
   confirmarBaja(tipo, id) {
     const b = this.leerBajas();
-    if (b[tipo][String(id)]) b[tipo][String(id)] = { ok: Date.now() };
+    const m = this._bajasDe(b, tipo);
+    if (m[String(id)]) m[String(id)] = { ok: Date.now() };
     this.guardarBajas(b);
   },
 
   olvidarBaja(tipo, id) {
     const b = this.leerBajas();
-    delete b[tipo][String(id)];
+    delete this._bajasDe(b, tipo)[String(id)];
     this.guardarBajas(b);
   },
 
@@ -145,7 +152,9 @@ const AdminSync = {
 
   /** Manda la baja a la planilla. Devuelve true si quedó hecha. */
   async enviarBaja(tipo, id) {
-    const res = await this.post(this.BAJA_ACCION[tipo], { id });
+    const res = tipo.startsWith('fin:')
+      ? await this.post('fin_delete', { sheet: tipo.slice(4), id })
+      : await this.post(this.BAJA_ACCION[tipo], { id });
     // "No encontrado" (Apps Script viejo) = ya no está en la planilla: está bien
     if (res && (res.success || /no encontrado/i.test(res.error || ''))) {
       this.confirmarBaja(tipo, id);
@@ -276,6 +285,9 @@ const AdminSync = {
       items: Array.isArray(items) ? items : [],
       origen: String(r.Origen || ''),
       stockDescontado: String(r.StockDescontado || '').toLowerCase() === 'si',
+      cobro: String(r.Cobro || ''),
+      envioCosto: Number(r.EnvioCosto) || 0,
+      clienteId: String(r.ClienteId || ''),
     };
   },
 
@@ -286,11 +298,25 @@ const AdminSync = {
       Estado: o.estado || 'pendiente', MedioPago: o.medioPago || '', MetodoEnvio: o.metodoEnvio || '',
       Total: Number(o.total) || 0, CostoTotal: Number(o.costoTotal) || 0, Notas: o.notas || '',
       Items: JSON.stringify(o.items || []), StockDescontado: o.stockDescontado ? 'si' : 'no',
+      Origen: o.origen || 'admin',
+      Cobro: o.cobro || '', EnvioCosto: Number(o.envioCosto) || 0, ClienteId: o.clienteId || '',
     };
   },
 
   gastoDesdeHoja(r) {
-    return { id: String(r.ID), fecha: r.Fecha ? new Date(r.Fecha).toISOString() : '', concepto: String(r.Concepto || ''), monto: Number(r.Monto) || 0, categoria: String(r.Categoria || ''), notas: String(r.Notas || '') };
+    // Todas las columnas (tipo, proveedor, mes, IVA, USD...) con el mismo mapeo que Finanzas
+    const g = Fin.fromRow(r, Fin.GASTO_NUM, ['pagadoExterno']);
+    g.fecha = r.Fecha ? new Date(r.Fecha).toISOString() : '';
+    g.concepto = String(r.Concepto || '');
+    if (!r.Tipo) { delete g.tipo; delete g.pagadoExterno; }
+    return g;
+  },
+
+  /** Gasto a la planilla con todas sus columnas (Apps Script viejo: solo las básicas) */
+  publicarGasto(g, etiqueta) {
+    if (!g || !this.habilitado()) return;
+    if (!Fin.remotoOk) return this.publicar('create_expense', { expense: g }, etiqueta);
+    this.publicar('fin_upsert', { sheet: 'gastos', row: Fin.toRow(g) }, etiqueta);
   },
 
   /* ---------- Sincronización completa ---------- */
@@ -331,7 +357,7 @@ const AdminSync = {
       const idsPed = new Set(pedRemotos.map(o => o.id));
       const pedLocales = [];
       for (const o of AdminData.getOrders().filter(o => !idsPed.has(String(o.id)) && !bajasPed.has(String(o.id)))) {
-        const res = await this.post('create_order', { order: { ...o, origen: 'admin' } });
+        const res = await this.post('create_order', { order: { ...o, origen: o.origen || 'admin' } });
         if (res && res.borrado) continue;
         await this.post('update_order', { id: o.id, updates: this.pedidoParaHoja(o) });
         pedLocales.push(o);
@@ -342,10 +368,16 @@ const AdminSync = {
       const gasRemotos = gastos.filter(r => r.ID && !bajasGas.has(String(r.ID))).map(r => this.gastoDesdeHoja(r));
       const idsGas = new Set(gasRemotos.map(g => g.id));
       const gasLocales = [];
+      // Finanzas: cuentas, movimientos, socios, proveedores, clientes y caja
+      let fin = {};
+      try { fin = await Fin.sincronizar(); } catch (e) { console.warn('[Fin] sync', e); }
       for (const g of AdminData.getExpenses().filter(g => !idsGas.has(String(g.id)) && !bajasGas.has(String(g.id)))) {
-        const res = await this.post('create_expense', { expense: g });
+        const res = Fin.remotoOk
+          ? await this.post('fin_upsert', { sheet: 'gastos', row: Fin.toRow(g) })
+          : await this.post('create_expense', { expense: g });
         if (!(res && res.borrado)) gasLocales.push(g);
       }
+      this._finViejo = !!fin.actualizar;
       AdminData.saveExpenses([...gasRemotos, ...gasLocales]);
 
       // Leads del Club Prince (solo lectura)
@@ -375,6 +407,15 @@ const AdminSync = {
         if (cont && typeof cont === 'object') AdminData.saveContenido(cont);
         const promos = parse(cfg.promos);
         if (promos && typeof promos === 'object') localStorage.setItem(AdminData.KEYS.promos, JSON.stringify(promos));
+        // Ganancia general y redondeo: los mismos que usa la tienda
+        const st = AdminData.getSettings();
+        let cambio = false;
+        if (Number(cfg.margen) > 0) { CONFIG.cotizacion.margenGanancia = Number(cfg.margen); st.margen = Number(cfg.margen); cambio = true; }
+        if (cfg.redondeo !== undefined && cfg.redondeo !== '' && Number(cfg.redondeo) >= 0) { CONFIG.cotizacion.redondeo = Number(cfg.redondeo); st.redondeo = Number(cfg.redondeo); cambio = true; }
+        if (cfg.impuestoVentasPct !== undefined && cfg.impuestoVentasPct !== '') { st.impuestoVentasPct = Number(cfg.impuestoVentasPct) || 0; cambio = true; }
+        if (cambio) AdminData.saveSettings(st);
+        const rec = parse(cfg.gastosRecurrentes);
+        if (rec && typeof rec === 'object') localStorage.setItem(Fin.RECURRENTES_KEY, JSON.stringify(rec));
         const envios = parse(cfg.envios);
         if (Array.isArray(envios) && envios.length) { localStorage.setItem('pl_admin_envios', JSON.stringify(envios)); CONFIG.envios = envios; }
       } finally { this._silencio = false; }
@@ -387,7 +428,11 @@ const AdminSync = {
         || (AdminApp.currentSection === 'promos' && typeof AdminPromos !== 'undefined' && AdminPromos.dirty);
       if (!editando) AdminApp.renderSection(AdminApp.currentSection);
       AdminApp.actualizarBadges?.();
-      const subidos = soloLocales.length + pedLocales.length + gasLocales.length;
+      if (!this._autoRec) {
+        this._autoRec = true;
+        try { const n = Fin.autoGenerar(); if (n) AdminApp.toast(`🔁 Se generaron ${n} gastos fijos del mes`); } catch (e) { console.warn('[Fin] recurrentes', e); }
+      }
+      const subidos = soloLocales.length + pedLocales.length + gasLocales.length + (fin.subidos || 0);
       if (manual || subidos) AdminApp.toast(`✅ Sincronizado con Google Sheets${subidos ? ` (${subidos} registros locales subidos)` : ''}`);
     } catch (err) {
       this.errores++;
@@ -435,13 +480,14 @@ const AdminSync = {
     });
     wrap('addOrder', (o) => {
       if (!o) return;
-      self.post('create_order', { order: { ...o, origen: 'admin' } })
+      self.post('create_order', { order: { ...o, origen: o.origen || 'admin' } })
         .then(() => self.publicar('update_order', { id: o.id, updates: self.pedidoParaHoja(o) }, 'el pedido'))
         .catch(e => AdminApp.toast('⚠️ El pedido no se guardó en la planilla: ' + e.message, 'error'));
     });
     wrap('updateOrder', (o) => o && self.publicar('update_order', { id: o.id, updates: self.pedidoParaHoja(o) }, 'el pedido'));
     wrap('deleteOrder', (_r, _a, id) => self.publicarBaja('pedidos', id, 'el pedido'));
-    wrap('addExpense', (g) => g && self.publicar('create_expense', { expense: g }, 'el gasto'));
+    wrap('addExpense', (g) => self.publicarGasto(g, 'el gasto'));
+    wrap('updateExpense', (g) => self.publicarGasto(g, 'el gasto'));
     wrap('deleteExpense', (_r, _a, id) => self.publicarBaja('gastos', id, 'el gasto'));
     wrap('saveCategorias', () => self.publicar('save_config', { config: { categorias: JSON.stringify(AdminData.getEffectiveCategorias()) } }, 'las categorías'));
     wrap('resetCategorias', () => self.publicar('save_config', { config: { categorias: '' } }, 'las categorías'));

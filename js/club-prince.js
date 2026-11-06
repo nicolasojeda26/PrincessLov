@@ -16,8 +16,9 @@
  * @property {string} nombre
  * @property {string} descripcionCorta Texto visible en la tarjeta
  * @property {string} detalleCompleto Texto visible en el Modal
- * @property {number} precioUSD Precio base (se convierte a ARS con margen)
- * @property {number} precio Precio ARS calculado (solo lectura, se genera al normalizar)
+ * @property {number} precioARS Precio en pesos (nov/2026: todo en pesos)
+ * @property {number} precioUSD Solo cajas viejas: se pasa a pesos con el dólar de conversión
+ * @property {number} precio Precio ARS final (solo lectura, se genera al normalizar)
  * @property {string} imagenUrl URL de imagen ('' = placeholder condicional)
  * @property {string} icon Emoji/icono de respaldo
  * @property {string} tag Badge superior ("Más elegida", "Premium", "Deluxe")
@@ -81,6 +82,7 @@ const ClubPrince = {
       descripcionCorta,
       desc: descripcionCorta, // alias histórico
       detalleCompleto: r.detalleCompleto || '',
+      precioARS: Math.max(0, Math.round(parseFloat(r.precioARS) || 0)),
       precioUSD: parseFloat(r.precioUSD) || 0,
       precio: 0, // se calcula abajo
       imagenUrl: /^(https:|assets\/)/.test(String(r.imagenUrl || r.imagen || '')) ? String(r.imagenUrl || r.imagen) : '',
@@ -92,13 +94,14 @@ const ClubPrince = {
 
   precioARS(box) {
     const b = box && typeof box === 'object' ? box : {};
+    if (Number(b.precioARS) > 0) return Math.round(Number(b.precioARS));
+    // Cajas guardadas antes de nov/2026 con precio en USD
     try {
-      if (typeof SheetsService !== 'undefined' && SheetsService.calcularPrecioARS) {
-        return SheetsService.calcularPrecioARS(b.precioUSD || 0);
+      if (Number(b.precioUSD) > 0 && typeof SheetsService !== 'undefined' && SheetsService.calcularPrecioARS) {
+        return SheetsService.calcularPrecioARS(b.precioUSD);
       }
     } catch {}
-    const dolar = (typeof SheetsService !== 'undefined' && SheetsService.cotizacionDolar) || 1200;
-    return Math.round((b.precioUSD || 0) * dolar * 1.3);
+    return 0;
   },
 
   formatARS(value) {
@@ -349,8 +352,7 @@ const ClubPrince = {
       descripcionCorta: box.descripcionCorta || '',
       categoria: 'club-prince',
       categoriaOriginal: 'Club Prince',
-      precioUSD: box.precioUSD,
-      precioARSManual: null,
+      precioARSManual: this.precioARS(box) || null,
       imagen: box.imagenUrl || (typeof CONFIG !== 'undefined' && CONFIG.imagenes?.placeholder) || '',
       stock: 999,
       activo: true,

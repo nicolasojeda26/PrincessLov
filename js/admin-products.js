@@ -20,6 +20,48 @@ const AdminProducts = {
     return Number.isFinite(n) && n > 0 ? Math.round(n) : null;
   },
 
+  /** Ganancia % general (Configuración), ej. 30 */
+  gananciaGlobalPct() {
+    return Math.round(((Number(CONFIG?.cotizacion?.margenGanancia) || 1.3) - 1) * 100);
+  },
+
+  /** Lo que hay escrito en Precios: costo (en pesos), ganancia y el precio que sale */
+  leerCostoForm() {
+    const raw = document.getElementById('pf-preciousd')?.value || '';
+    const costo = this.parseARS(raw);
+    const gRaw = document.getElementById('pf-ganancia')?.value ?? '';
+    const gananciaPct = gRaw.trim() === '' ? null : Math.max(0, Number(gRaw) || 0);
+    const precio = costo ? SheetsService.precioDesdeCosto({ costo, gananciaPct: gananciaPct ?? this.gananciaGlobalPct() }) : 0;
+    return { raw, costo, gananciaPct, precio };
+  },
+
+  /** Recuadro "Precio de venta: $16.000" con la cuenta */
+  actualizarPrecioCalculado() {
+    const box = document.getElementById('pf-precio-calculado');
+    const { raw, costo, gananciaPct, precio } = this.leerCostoForm();
+    const gHint = document.getElementById('pf-ganancia-hint');
+    if (gHint) gHint.textContent = `Vacío = la general (${this.gananciaGlobalPct()}%)`;
+    if (!box) return;
+    if (raw.trim() && !costo) { box.className = 'precio-calculado precio-calculado--error'; box.textContent = 'Revisá el costo: escribilo en pesos, como 10000 o 10.000'; return; }
+    if (!costo) { box.className = 'precio-calculado'; box.innerHTML = ''; return; }
+    const g = gananciaPct ?? this.gananciaGlobalPct();
+    const costoARS = costo;
+    const sinRedondeo = Math.round(costoARS * (1 + g / 100));
+    const manual = this.parseARS(document.getElementById('pf-precio-ars-manual')?.value);
+    const red = Number(CONFIG?.cotizacion?.redondeo) || 0;
+    const pasos = [
+      `Costo ${AdminData.formatARS(costoARS)}`,
+      `+ ${g}% de ganancia = ${AdminData.formatARS(sinRedondeo)}`,
+      red && precio !== sinRedondeo ? `redondeado a ${AdminData.formatARS(precio)}` : '',
+    ].filter(Boolean).join(' → ');
+    box.className = 'precio-calculado' + (manual ? ' precio-calculado--tachado' : '');
+    box.innerHTML = `
+      <div class="precio-calculado__monto">Precio de venta: <strong>${AdminData.formatARS(precio)}</strong></div>
+      <div class="precio-calculado__cuenta">${this.esc(pasos)}</div>
+      <div class="precio-calculado__nota">${manual ? `Vas a usar el precio a mano (${AdminData.formatARS(manual)}): ganás ${AdminData.formatARS(manual - costoARS)} por unidad.`
+        : `Ganás ${AdminData.formatARS(precio - costoARS)} por unidad.`}</div>`;
+  },
+
   formatInputARS(n) {
     return n ? new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 }).format(n) : '';
   },
@@ -85,6 +127,13 @@ const AdminProducts = {
       });
     });
 
+    ['pf-preciousd', 'pf-ganancia', 'pf-precio-ars-manual'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('input', () => this.actualizarPrecioCalculado());
+    });
+    const comboPrecio = document.getElementById('pf-combo-precio');
+    if (comboPrecio) comboPrecio.addEventListener('input', () => this.comboResumen());
+
     // Live preview for main image
     const imgInput = document.getElementById('pf-imagen');
     document.querySelectorAll('#product-modal .input-ars').forEach(inp => {
@@ -147,7 +196,10 @@ const AdminProducts = {
     if (empty) empty.style.display = 'none';
 
     tbody.innerHTML = products.map(p => {
-      const precioARS = AdminApp.dolarRate ? (p.precioUSD * AdminApp.dolarRate * (CONFIG?.cotizacion?.margenGanancia || 1.3)) : 0;
+      const precioARS = AdminData.precioVentaARS(p);
+      const costoUnit = AdminData.costoUnitarioARS(p);
+      const costoTxt = costoUnit > 0 ? AdminData.formatARS(costoUnit) : '';
+      const gan = p.gananciaPct != null && p.gananciaPct !== '' ? Number(p.gananciaPct) : null;
       // Mismo criterio que las alertas del Inicio: "stock bajo" es 3 o menos
       const stockClass = p.stock <= 3 ? 'badge-low-stock' : 'badge-active';
       const stockLabel = p.stock <= 0 ? 'Sin stock' : p.stock <= 5 ? `${p.stock} u.` : `${p.stock} u.`;
@@ -168,10 +220,11 @@ const AdminProducts = {
             ${p.tags && p.tags.includes('nuevo') ? ' <span class="badge badge-new">Nuevo</span>' : ''}
             ${p.tags && p.tags.includes('oferta') ? ' <span class="badge" style="background:#F59E0B;color:white;">Oferta</span>' : ''}
             ${p.destacado ? ' <span class="badge badge-active">⭐ Destacado</span>' : ''}
+            <div><button class="btn btn-sm btn-vender" onclick="AdminProducts.vender('${escJsAttr(p.id)}')" title="Registrar una venta" aria-label="Registrar venta de ${this.esc(p.nombre)}">🛒 Vender</button></div>
           </td>
           <td>${this.esc(p.categoriaOriginal || p.categoria || '-')}</td>
-          <td>${Number(p.precioUSD) > 0 ? AdminData.formatUSD(p.precioUSD) : '<span style="color:var(--texto-secundario);">—</span>'}</td>
-          <td>${p.precioARSManual ? AdminData.formatARS(p.precioARSManual) : AdminData.formatARS(precioARS)}${p.precioOferta ? ` <span class="badge" style="background:#F59E0B;color:white;">Oferta: ${AdminData.formatARS(p.precioOferta)}</span>` : ''}</td>
+          <td>${costoTxt || '<span style="color:var(--texto-secundario);">—</span>'}${gan != null ? `<br><small style="color:var(--texto-secundario);">+${gan}%</small>` : ''}</td>
+          <td>${AdminData.formatARS(p.precioARSManual || SheetsService.precioARS(p) || precioARS)}${p.precioOferta ? ` <span class="badge" style="background:#F59E0B;color:white;">Oferta: ${AdminData.formatARS(p.precioOferta)}</span>` : ''}${this.combosDelProducto(p.id).some(c => c.activo !== false) ? ' <span class="badge" style="background:#EC4899;color:white;">🎁 Combo</span>' : ''}</td>
           <td>
             ${hasVariants ? `
               <div style="display:flex; flex-direction:column; gap:2px;">
@@ -239,6 +292,11 @@ const AdminProducts = {
     document.getElementById('pf-solo-web').checked = false;
     document.getElementById('pf-stock').value = 0;
     document.getElementById('pf-stock-min').value = 5;
+    document.getElementById('pf-preciousd').value = '';
+    document.getElementById('pf-ganancia').value = '';
+    this.actualizarPrecioCalculado();
+    this.comboCerrar();
+    this.renderCombos();
     
     // Clear dynamic sections
     document.getElementById('variantes-container').innerHTML = '';
@@ -258,11 +316,27 @@ const AdminProducts = {
     document.getElementById('pf-categoria').value = p.categoria || '';
     document.getElementById('pf-subcategoria').value = p.subcategoria || '';
     document.getElementById('pf-sku').value = p.sku || '';
-    document.getElementById('pf-preciousd').value = p.precioUSD || 0;
-    document.getElementById('pf-precio-ars-manual').value = this.formatInputARS(p.precioARSManual);
+    // Costo siempre en pesos (los productos viejos con costo en USD se muestran ya pasados a pesos)
+    const costoARS = AdminData.costoUnitarioARS(p);
+    document.getElementById('pf-preciousd').value = this.formatInputARS(costoARS);
+    // Ganancia: la nueva (%) o la vieja "margen personalizado"
+    const m = Number(p.margenPersonalizado);
+    const g = p.gananciaPct != null && p.gananciaPct !== '' ? Number(p.gananciaPct)
+      : (m > 0 ? Math.round((m >= 1 ? m - 1 : m) * 100) : '');
+    document.getElementById('pf-ganancia').value = g === '' ? '' : g;
+    // El precio calculado se guarda como precio fijo en pesos:
+    // solo se muestra en "a mano" si es distinto del calculado.
+    // Productos viejos sin precio en pesos: se muestra el que ve hoy la clienta.
+    let manual = p.precioARSManual || (costoARS > 0 ? null : SheetsService.precioARS(p)) || null;
+    if (manual && costoARS > 0) {
+      const calc = SheetsService.precioDesdeCosto({ costo: costoARS, gananciaPct: g === '' ? this.gananciaGlobalPct() : g });
+      if (Math.round(manual) === calc) manual = null;
+    }
+    document.getElementById('pf-precio-ars-manual').value = this.formatInputARS(manual);
     document.getElementById('pf-precio-oferta').value = this.formatInputARS(p.precioOferta);
     document.querySelectorAll('#product-modal .input-ars').forEach(i => this.updateARSPreview(i));
-    document.getElementById('pf-margen-personalizado').value = p.margenPersonalizado || '';
+    this.actualizarPrecioCalculado();
+    this.renderCombos();
     document.getElementById('pf-stock').value = p.stock || 0;
     document.getElementById('pf-stock-min').value = p.stockMin || 5;
     document.getElementById('pf-peso').value = p.peso || '';
@@ -578,7 +652,12 @@ const AdminProducts = {
     // pestaña y el navegador bloqueaba el guardado sin decir nada.
     if (!nombre) { irATab('basico'); AdminApp.toast('El producto necesita un nombre', 'error'); return; }
     if (!catId) { irATab('basico'); AdminApp.toast('Elegí una categoría', 'error'); return; }
-    const precioUSD = parseFloat(document.getElementById('pf-preciousd').value);
+    const costoForm = this.leerCostoForm();
+    if (costoForm.raw.trim() && !costoForm.costo) {
+      irATab('precios'); document.getElementById('pf-preciousd').focus();
+      AdminApp.toast('Revisá el costo: escribilo en pesos, como 10000 o 10.000', 'error');
+      return;
+    }
     const precioManual = this.parseARS(document.getElementById('pf-precio-ars-manual').value);
     const precioOfertaVal = this.parseARS(document.getElementById('pf-precio-oferta').value);
     for (const id of ['pf-precio-ars-manual', 'pf-precio-oferta']) {
@@ -590,7 +669,7 @@ const AdminProducts = {
         return;
       }
     }
-    if (!(precioUSD > 0) && !(precioManual > 0)) { irATab('precios'); AdminApp.toast('Cargá el precio (USD o precio manual en pesos)', 'error'); return; }
+    if (!(costoForm.costo > 0) && !(precioManual > 0)) { irATab('precios'); AdminApp.toast('Cargá lo que te costó (o un precio final a mano)', 'error'); return; }
     if (imagen && !/^(https:\/\/|assets\/|data:image\/)/.test(imagen)) {
       irATab('imagenes');
       AdminApp.toast('La foto principal tiene que ser un link https://. Usá el botón "📷 Subir foto" para subirla desde la compu o el celular.', 'error');
@@ -606,10 +685,17 @@ const AdminProducts = {
       categoriaOriginal: catConfig ? catConfig.nombre : catId,
       subcategoria: document.getElementById('pf-subcategoria').value.trim(),
       sku: document.getElementById('pf-sku').value.trim(),
-      precioUSD: parseFloat(document.getElementById('pf-preciousd').value) || 0,
-      precioARSManual: precioManual,
+      // Todo en pesos (nov/2026): PrecioUSD queda en 0
+      precioUSD: 0,
+      costoMoneda: 'ARS',
+      costoARS: costoForm.costo || 0,
+      // La ganancia queda fija en el producto (si no, cambiaría sola al tocar
+      // la general sin que cambie el precio guardado)
+      gananciaPct: costoForm.gananciaPct ?? (costoForm.costo > 0 ? this.gananciaGlobalPct() : null),
+      // El precio calculado se guarda como precio fijo en pesos
+      precioARSManual: precioManual || (costoForm.precio > 0 ? costoForm.precio : null),
       precioOferta: precioOfertaVal,
-      margenPersonalizado: document.getElementById('pf-margen-personalizado').value ? parseFloat(document.getElementById('pf-margen-personalizado').value) / 100 : null,
+      margenPersonalizado: null, // reemplazado por gananciaPct
       stock: variantes.length ? stockVariantes : (parseInt(document.getElementById('pf-stock').value) || 0),
       stockMin: parseInt(document.getElementById('pf-stock-min').value) || 5,
       peso: parseInt(document.getElementById('pf-peso').value) || null,
@@ -628,6 +714,10 @@ const AdminProducts = {
       caracteristicas,
     };
 
+    // ¿Bajó el stock a mano? Casi siempre es una venta por WhatsApp que
+    // no quedó registrada: se ofrece cargarla como venta.
+    const bajas = id ? this.bajasDeStock(AdminData.getProduct(id), data) : [];
+
     if (id) {
       AdminData.updateProduct(id, data);
       AdminApp.toast('Producto actualizado correctamente');
@@ -638,6 +728,183 @@ const AdminProducts = {
 
     this.closeForm();
     this.renderTable();
+    if (bajas.length) this.ofrecerRegistrarVenta(id, bajas);
+  },
+
+  /** Variantes (o stock total) que bajaron al editar: [{ variante, cantidad }] */
+  bajasDeStock(antes, despues) {
+    if (!antes) return [];
+    const varsA = Array.isArray(antes.variantes) ? antes.variantes : [];
+    const varsD = Array.isArray(despues.variantes) ? despues.variantes : [];
+    const clave = v => `${String(v.color || '').trim()} / ${String(v.talle || '').trim()}`;
+    if (varsA.length && varsD.length) {
+      const out = [];
+      varsA.forEach(va => {
+        const vd = varsD.find(v => clave(v) === clave(va));
+        const diff = (Number(va.stock) || 0) - (Number(vd?.stock) || 0);
+        if (vd && diff > 0) out.push({ variante: clave(va), cantidad: diff });
+      });
+      return out;
+    }
+    if (!varsA.length && !varsD.length) {
+      const diff = (Number(antes.stock) || 0) - (Number(despues.stock) || 0);
+      return diff > 0 ? [{ variante: '', cantidad: diff }] : [];
+    }
+    return [];
+  },
+
+  ofrecerRegistrarVenta(id, bajas) {
+    const p = AdminData.getProduct(id);
+    if (!p) return;
+    const detalle = bajas.map(b => `• ${AdminData.varianteLegible(b.variante) || p.nombre}: ${b.cantidad} menos`).join('\n');
+    const ok = confirm(`Bajaste el stock de "${p.nombre}":\n${detalle}\n\n¿Fue una venta (por WhatsApp, Instagram o en persona)?\n\nAceptar = la registro en Pedidos para que cuente en tus ventas (el stock no se vuelve a descontar).\nCancelar = solo era una corrección de stock.`);
+    if (!ok) return;
+    const precio = AdminData.precioVentaARS(p);
+    const items = bajas.map(b => ({ productoId: p.id, nombre: p.nombre, variante: b.variante, cantidad: b.cantidad, precioUnitario: precio }));
+    const order = AdminData.addOrder({
+      cliente: 'Venta por WhatsApp', origen: 'whatsapp', estado: 'confirmado',
+      items, notas: 'Registrada al bajar el stock a mano',
+    }, { stockYaDescontado: true });
+    AdminApp.toast('✅ Venta registrada. Completá el nombre y el pago si querés.');
+    // Se abre para completar cliente, precio cobrado y medio de pago
+    setTimeout(() => { try { AdminOrders.openForm(order.id); } catch {} }, 200);
+  },
+
+  /** Botón 🛒 de la lista: registrar una venta de este producto */
+  vender(id) {
+    AdminApp.navigate('orders');
+    setTimeout(() => AdminOrders.openForm(null, { productoId: id }), 150);
+  },
+
+  // ========== COMBOS (se guardan en Promociones) ==========
+  combosDelProducto(id) {
+    const promos = AdminData.getEffectivePromos() || {};
+    return (promos.combos || []).filter(c => (c.productoIds || []).map(String).includes(String(id)));
+  },
+
+  renderCombos() {
+    const list = document.getElementById('pf-combos-list');
+    const btn = document.getElementById('pf-combo-nuevo');
+    if (!list) return;
+    const id = this.currentEditId;
+    if (btn) btn.disabled = !id;
+    if (!id) { list.innerHTML = '<p class="form-hint">Guardá el producto primero y después armá combos con él.</p>'; return; }
+    const combos = this.combosDelProducto(id);
+    list.innerHTML = combos.length ? combos.map(c => {
+      const nombres = (c.productoIds || []).map(pid => AdminData.getProduct(pid)?.nombre || '(producto borrado)');
+      const precio = typeof PromoEngine !== 'undefined' && PromoEngine.precioCombo ? PromoEngine.precioCombo(c) : (Number(c.precioARS) || 0);
+      return `<div class="combo-item${c.activo === false ? ' combo-item--off' : ''}">
+        <div><strong>${this.esc(c.nombre || 'Combo')}</strong>${c.activo === false ? ' <span class="badge badge-inactive">Pausado</span>' : ''}<br>
+          <small>${this.esc(nombres.join(' + '))}</small></div>
+        <div class="combo-item__precio">${precio ? AdminData.formatARS(precio) : '10% off'}</div>
+        <button type="button" class="btn btn-sm btn-danger" onclick="AdminProducts.comboBorrar('${escJsAttr(c.id)}')" aria-label="Borrar combo">🗑️</button>
+      </div>`;
+    }).join('') : '<p class="form-hint">Este producto todavía no está en ningún combo.</p>';
+  },
+
+  comboAbrir() {
+    if (!this.currentEditId) return;
+    document.getElementById('pf-combo-builder').hidden = false;
+    document.getElementById('pf-combo-nuevo').hidden = true;
+    document.getElementById('pf-combo-otros').innerHTML = '';
+    document.getElementById('pf-combo-precio').value = '';
+    document.getElementById('pf-combo-nombre').value = '';
+    this.updateARSPreview(document.getElementById('pf-combo-precio'));
+    this.comboAgregarOtro();
+  },
+
+  comboCerrar() {
+    const b = document.getElementById('pf-combo-builder');
+    if (b) b.hidden = true;
+    const n = document.getElementById('pf-combo-nuevo');
+    if (n) n.hidden = false;
+  },
+
+  comboAgregarOtro() {
+    const cont = document.getElementById('pf-combo-otros');
+    const prods = AdminData.getProducts().filter(p => String(p.id) !== String(this.currentEditId))
+      .sort((a, b) => String(a.nombre).localeCompare(String(b.nombre)));
+    const sel = document.createElement('div');
+    sel.className = 'combo-otro';
+    sel.innerHTML = `<select class="combo-otro__sel" aria-label="Producto del combo">
+        <option value="">Elegí el producto…</option>
+        ${prods.map(p => {
+          const colores = [...new Set((p.variantes || []).map(v => String(v.color || '').trim()).filter(Boolean))];
+          return `<option value="${this.esc(p.id)}">${this.esc(p.nombre)}${colores.length ? ' · ' + this.esc(colores.join(', ')) : ''} — ${AdminData.formatARS(AdminData.precioVentaARS(p))}</option>`;
+        }).join('')}
+      </select>
+      <button type="button" class="btn btn-sm btn-danger" onclick="this.parentElement.remove(); AdminProducts.comboResumen()" aria-label="Quitar">✕</button>`;
+    sel.querySelector('select').addEventListener('change', () => this.comboResumen());
+    cont.appendChild(sel);
+    this.comboResumen();
+  },
+
+  comboIds() {
+    const otros = [...document.querySelectorAll('#pf-combo-otros .combo-otro__sel')].map(s => s.value).filter(Boolean);
+    return [String(this.currentEditId), ...otros];
+  },
+
+  /** "Por separado $28.000 · combo $25.000 · ahorra $3.000 · te queda $X" */
+  comboResumen() {
+    const box = document.getElementById('pf-combo-resumen');
+    if (!box) return;
+    const ids = this.comboIds();
+    const prods = ids.map(id => AdminData.getProduct(id)).filter(Boolean);
+    if (prods.length < 2) { box.innerHTML = ''; return; }
+    const suma = prods.reduce((s, p) => s + AdminData.precioVentaARS(p), 0);
+    const costo = prods.reduce((s, p) => s + AdminData.costoUnitarioARS(p), 0);
+    const precio = this.parseARS(document.getElementById('pf-combo-precio').value);
+    const nombre = document.getElementById('pf-combo-nombre');
+    if (nombre && !nombre.value.trim()) nombre.placeholder = 'Ej: ' + prods.map(p => p.nombre).join(' + ').slice(0, 60);
+    box.innerHTML = `Por separado: <strong>${AdminData.formatARS(suma)}</strong>` +
+      (precio ? ` · Combo: <strong>${AdminData.formatARS(precio)}</strong> · La clienta ahorra ${AdminData.formatARS(Math.max(0, suma - precio))}` : '') +
+      (precio && costo ? `<br>Te cuesta ${AdminData.formatARS(costo)} → ganás <strong class="${precio - costo > 0 ? '' : 'texto-error'}">${AdminData.formatARS(precio - costo)}</strong> por combo (${Math.round((precio - costo) / costo * 100)}%)` : '');
+  },
+
+  /** Guarda el combo en Promociones y lo publica en la tienda */
+  guardarPromos(promos, etiqueta) {
+    AdminData.savePromos(promos);
+    if (typeof AdminPromos !== 'undefined') AdminPromos.data = null; // que Promociones lo vea al entrar
+    if (typeof AdminSync !== 'undefined' && AdminSync.habilitado()) {
+      AdminSync.publicar('save_config', { config: { promos: JSON.stringify(promos) } }, etiqueta);
+      return true;
+    }
+    return false;
+  },
+
+  comboGuardar() {
+    if (typeof AdminPromos !== 'undefined' && AdminPromos.dirty) {
+      AdminApp.toast('Tenés cambios sin guardar en Promociones: guardalos o descartalos primero', 'error');
+      return;
+    }
+    const ids = [...new Set(this.comboIds())];
+    if (ids.length < 2) { AdminApp.toast('Elegí con qué producto va el combo', 'error'); return; }
+    const precio = this.parseARS(document.getElementById('pf-combo-precio').value);
+    if (!precio) { AdminApp.toast('Poné el precio del combo en pesos', 'error'); document.getElementById('pf-combo-precio').focus(); return; }
+    const prods = ids.map(id => AdminData.getProduct(id)).filter(Boolean);
+    const suma = prods.reduce((s, p) => s + AdminData.precioVentaARS(p), 0);
+    if (precio >= suma && !confirm(`El combo (${AdminData.formatARS(precio)}) no es más barato que comprar todo por separado (${AdminData.formatARS(suma)}), así que no se va a notar. ¿Guardarlo igual?`)) return;
+    const nombre = document.getElementById('pf-combo-nombre').value.trim() || prods.map(p => p.nombre).join(' + ').slice(0, 80);
+    const promos = JSON.parse(JSON.stringify(AdminData.getEffectivePromos() || {}));
+    promos.combos = Array.isArray(promos.combos) ? promos.combos : [];
+    promos.combos.push({ id: 'combo_' + Date.now().toString(36), nombre, descripcion: '', productoIds: ids, precioARS: precio, activo: true });
+    const publicado = this.guardarPromos(promos, 'el combo');
+    AdminApp.toast(publicado ? '🎁 Combo guardado y publicado en la tienda' : '🎁 Combo guardado (se publica al conectar la planilla)');
+    this.comboCerrar();
+    this.renderCombos();
+  },
+
+  comboBorrar(comboId) {
+    if (typeof AdminPromos !== 'undefined' && AdminPromos.dirty) {
+      AdminApp.toast('Tenés cambios sin guardar en Promociones: guardalos o descartalos primero', 'error');
+      return;
+    }
+    if (!confirm('¿Borrar este combo?')) return;
+    const promos = JSON.parse(JSON.stringify(AdminData.getEffectivePromos() || {}));
+    promos.combos = (promos.combos || []).filter(c => String(c.id) !== String(comboId));
+    this.guardarPromos(promos, 'la baja del combo');
+    AdminApp.toast('Combo borrado');
+    this.renderCombos();
   },
 
   closeForm() {
@@ -662,16 +929,17 @@ const AdminProducts = {
       return;
     }
 
-    const headers = ['ID', 'Nombre', 'Categoria', 'Subcategoria', 'SKU', 'Descripcion', 'DescripcionCorta', 'PrecioUSD', 'PrecioARSManual', 'PrecioOferta', 'MargenPersonalizado', 'Stock', 'StockMin', 'Peso', 'Dimensiones', 'Imagen', 'Galeria', 'Variantes', 'Caracteristicas', 'Tags', 'Activo', 'Destacado', 'SoloWeb', 'SEOTitle', 'SEODesc'];
+    const headers = ['ID', 'Nombre', 'Categoria', 'Subcategoria', 'SKU', 'Descripcion', 'DescripcionCorta', 'PrecioARSManual', 'PrecioOferta', 'MargenPersonalizado', 'GananciaPct', 'CostoARS', 'Stock', 'StockMin', 'Peso', 'Dimensiones', 'Imagen', 'Galeria', 'Variantes', 'Caracteristicas', 'Tags', 'Activo', 'Destacado', 'SoloWeb', 'SEOTitle', 'SEODesc'];
     const rows = products.map(p => {
       const galeriaStr = (p.galeria || []).map(g => g.url).join(' | ');
       const variantesStr = (p.variantes || []).map(v => `${v.color || ''}${v.color ? `(${v.colorHex || ''})` : ''}/${v.talle || ''}:${Number(v.stock) || 0}`).join(' | ');
       const specsStr = Object.entries(p.caracteristicas || {}).map(([k, v]) => `${k}:${v}`).join(' | ');
       return [
         p.id, p.nombre, p.categoriaOriginal || p.categoria, p.subcategoria, p.sku,
-        p.descripcion, p.descripcionCorta, p.precioUSD,
-        p.precioARSManual || '', p.precioOferta || '',
+        p.descripcion, p.descripcionCorta,
+        p.precioARSManual || SheetsService.precioARS(p) || '', p.precioOferta || '',
         p.margenPersonalizado ? (p.margenPersonalizado * 100) : '',
+        p.gananciaPct ?? '', AdminData.costoUnitarioARS(p) || '',
         p.stock, p.stockMin || 5, p.peso || '', p.dimensiones || '',
         p.imagen, galeriaStr, variantesStr, specsStr,
         (p.tags || []).join(', '),

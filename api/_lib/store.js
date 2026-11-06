@@ -10,7 +10,7 @@
  * Variables de entorno (Vercel > Settings > Environment Variables):
  *   APPS_SCRIPT_URL   URL /exec del Web App de Google Apps Script
  *   SHEETS_CSV_URL    (opcional) CSV publicado, se usa si falla Apps Script
- *   DOLAR_MANUAL      (opcional) cotizacion de respaldo. Default 1200
+ *   DOLAR_CONVERSION  (opcional) dolar fijo SOLO para pasar a pesos datos viejos en USD. Default 1570
  *   MARGEN_GANANCIA   (opcional) markup global. Default 1.30
  * ------------------------------------------------------------------
  */
@@ -36,8 +36,18 @@ export function margenGlobal() {
   return Number(process.env.MARGEN_GANANCIA) || 1.30;
 }
 
-export function dolarManual() {
-  return Number(process.env.DOLAR_MANUAL) || 1200;
+/** Redondeo de precios calculados (tiene que coincidir con CONFIG.cotizacion.redondeo de data/config.js) */
+export function redondeoGlobal() {
+  const v = process.env.REDONDEO;
+  return v !== undefined && v !== '' && Number(v) >= 0 ? Number(v) : 500;
+}
+
+/**
+ * Todo en pesos (nov/2026): el dolar ya no se consulta. Este valor fijo solo pasa a
+ * pesos datos viejos que quedaron en USD (igual que CONFIG.cotizacion.dolarConversion).
+ */
+export function dolarConversion() {
+  return Number(process.env.DOLAR_CONVERSION) || 1570;
 }
 
 /* ================= Apps Script ================= */
@@ -108,6 +118,9 @@ function mapProducto(p) {
     precioARSManual: p.PrecioARSManual ? num(p.PrecioARSManual) : null,
     precioOferta: p.PrecioOferta ? num(p.PrecioOferta) : null,
     margenPersonalizado: p.MargenPersonalizado ? num(p.MargenPersonalizado) / 100 : null,
+    gananciaPct: p.GananciaPct !== undefined && p.GananciaPct !== '' && p.GananciaPct !== null && Number.isFinite(Number(p.GananciaPct)) ? Number(p.GananciaPct) : null,
+    costoMoneda: String(p.CostoMoneda || '').toUpperCase() === 'ARS' ? 'ARS' : 'USD',
+    costoARS: num(p.CostoARS),
     imagen: p.Imagen || '',
     stock: parseInt(p.Stock, 10) || 0,
     variantes: parseJSONSafe(p.Variantes, []),
@@ -175,34 +188,11 @@ export async function getProductos() {
   });
 }
 
-/* ================= Cotizacion del dolar ================= */
+/* ================= Dolar (solo datos viejos) ================= */
 
+/** Se mantiene el nombre por compatibilidad: devuelve el dolar fijo de conversion, sin consultar nada */
 export async function getCotizacion() {
-  return cached('dolar', async () => {
-    // 1) Historial propio en la planilla (misma fuente que usa la tienda)
-    try {
-      const data = await getFromAppsScript('dolar');
-      if (Array.isArray(data) && data.length) {
-        const valor = num(data[data.length - 1].Valor);
-        if (valor > 0) return valor;
-      }
-    } catch (e) {
-      console.warn('[store] dolar Apps Script fallo:', e.message);
-    }
-    // 2) CriptoYa
-    try {
-      const res = await fetch('https://criptoya.com/api/dolar');
-      if (res.ok) {
-        const d = await res.json();
-        const valor = num(d?.oficial?.ask ?? d?.blue?.ask);
-        if (valor > 0) return valor;
-      }
-    } catch (e) {
-      console.warn('[store] CriptoYa fallo:', e.message);
-    }
-    // 3) Manual
-    return dolarManual();
-  });
+  return dolarConversion();
 }
 
 /* ================= Config (promos + envios) ================= */
@@ -236,6 +226,8 @@ export async function getStoreConfig() {
       promos,
       envios: Array.isArray(envios) && envios.length ? envios : ENVIOS_FALLBACK,
       envioGratisUmbralARS: num(promos.envioGratisUmbralARS) || 150000,
+      // El admin lo guarda en la hoja Config; si no esta, el valor por defecto de Vercel
+      redondeo: raw.redondeo !== undefined && raw.redondeo !== '' && Number(raw.redondeo) >= 0 ? Number(raw.redondeo) : redondeoGlobal(),
     };
   });
 }

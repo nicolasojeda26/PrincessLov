@@ -19,7 +19,7 @@ def check(name, cond, extra=""):
 
 # ---------------- Apps Script simulado (mismas reglas que el .gs) ----------------
 DB = {"Productos": [], "Pedidos": [], "Gastos": [], "Config": {}, "ClubPrince_Leads": [], "Arrepentimiento": [], "Newsletter": []}
-PUBLIC_CFG = ['promos', 'clubPrince_boxes', 'contenido', 'categorias', 'envios', 'whatsapp', 'instagram', 'nombre', 'margen', 'dolarManual']
+PUBLIC_CFG = ['promos', 'clubPrince_boxes', 'contenido', 'categorias', 'envios', 'whatsapp', 'instagram', 'nombre', 'margen', 'redondeo']
 SHEET = {"productos": "Productos", "pedidos": "Pedidos", "gastos": "Gastos", "clubprince": "ClubPrince_Leads", "arrepentimiento": "Arrepentimiento", "config": "Config"}
 
 def upsert(sheet, row):
@@ -58,7 +58,9 @@ def gas(route, request):
             "Imagen": p.get("imagen", ""), "Stock": p.get("stock", 0), "Activo": p.get("activo") is not False, "Tags": p.get("tags", ""),
             "SKU": p.get("sku", ""), "PrecioARSManual": p.get("precioARSManual") or "", "PrecioOferta": p.get("precioOferta") or "",
             "Galeria": p.get("galeria", "[]"), "Variantes": p.get("variantes", "[]"), "Caracteristicas": p.get("caracteristicas", "{}"),
-            "Destacado": bool(p.get("destacado")), "DescripcionCorta": p.get("descripcionCorta", ""), "StockMin": p.get("stockMin", 5)})
+            "Destacado": bool(p.get("destacado")), "DescripcionCorta": p.get("descripcionCorta", ""), "StockMin": p.get("stockMin", 5),
+            "MargenPersonalizado": p.get("margenPersonalizado") or "", "GananciaPct": "" if p.get("gananciaPct") is None else p.get("gananciaPct"),
+            "CostoMoneda": "ARS" if p.get("costoMoneda") == "ARS" else "USD", "CostoARS": p.get("costoARS") or ""})
     elif a == "delete_product":
         DB["Productos"] = [r for r in DB["Productos"] if str(r["ID"]) != str(data["id"])]
     elif a == "create_order":
@@ -162,8 +164,9 @@ with sync_playwright() as p:
     cont = json.loads(DB["Config"].get("contenido") or "{}")
     check("página: textos publicados en la planilla", cont.get("hero", [{}])[0].get("title") == "Título QA Portada" and cont.get("promoBar", [""])[0] == "Frase QA en la barra", cont.get("hero", [{}])[0])
     check("página: sección oculta publicada", cont.get("secciones", {}).get("servicios") is False)
-    ad.wait_for_timeout(1500)
     fr = ad.frame_locator("#home-preview-iframe")
+    try: fr.locator(".hero__slide:has-text('Título QA Portada')").first.wait_for(timeout=8000)
+    except Exception: pass
     check("vista previa muestra el cambio", "Título QA Portada" in (fr.locator(".hero__slide").first.text_content() or ""))
 
     # --- Envíos ---
@@ -246,7 +249,11 @@ with sync_playwright() as p:
         check(f"tienda {tag}: envío nuevo en el carrito", "Moto QA" in opts, opts)
         mid = st.evaluate("CONFIG.envios.find(e=>e.nombre==='Moto QA').id")
         st.click(f"#shipping-result [data-shipping='{mid}']"); st.wait_for_timeout(200)
-        check(f"tienda {tag}: envío cobra precio (umbral 0 = sin envío gratis)", st.evaluate("CartService.getShippingCost()") == 1500)
+        # Desde el 15/10 los envíos con precio se coordinan por WhatsApp (CONFIG.enviosPrecioACoordinar):
+        # no se suman al total, pero con umbral 0 tampoco son gratis
+        check(f"tienda {tag}: envío con precio = 'a coordinar' (umbral 0 = sin envío gratis)",
+              st.evaluate("CartService.getShippingCost()") == 0 and st.evaluate("CartService.hasFreeShipping()") is False
+              and st.evaluate(f"CartService.textoCostoEnvio(CONFIG.envios.find(e=>e.id==='{mid}'))") == "Precio a coordinar")
         st.click(".cart__promo-toggle"); st.fill("#promo-input", "qa15"); st.click(".cart__promo-btn"); st.wait_for_timeout(200)
         sub = st.evaluate("CartService.getLineasSubtotalARS()")
         check(f"tienda {tag}: cupón nuevo funciona", st.evaluate("CartService.getCouponDiscount()") == round(sub * 0.15))

@@ -17,8 +17,10 @@ const AdminSettings = {
     set('set-whatsapp', settings.whatsapp || neg.whatsapp || '');
     set('set-email', settings.email || neg.email || '');
     set('set-instagram', settings.instagram || neg.instagram || '');
-    set('set-dolar-manual', settings.dolarManual || CONFIG?.cotizacion?.cotizacionManual || '');
-    set('set-margen', settings.margen || CONFIG?.cotizacion?.margenGanancia || '');
+    // El margen se guarda como multiplicador (1.30) pero se muestra como % (30)
+    set('set-margen', this.margenAPct(settings.margen || CONFIG?.cotizacion?.margenGanancia));
+    set('set-redondeo', String(this.redondeoActual(settings)));
+    set('set-impuesto-ventas', settings.impuestoVentasPct || '');
 
     // Gastos fijos
     const gf = settings.gastosFijos || {};
@@ -28,8 +30,8 @@ const AdminSettings = {
     set('set-gasto-transporte', gf.transporte || '');
     set('set-gasto-otros', gf.otros || '');
 
-    // Costos variables
-    const cv = settings.costosVariables || {};
+    // Costos variables (en pesos)
+    const cv = this.costosVariablesEnPesos(settings.costosVariables);
     set('set-cv-envoltorio', cv.envoltorio || '');
     set('set-cv-etiqueta', cv.etiqueta || '');
     set('set-cv-comision', cv.comisionMP || '');
@@ -47,12 +49,15 @@ const AdminSettings = {
         if (remote.whatsapp || remote.nombre) {
           AdminData.saveSettings(this.sanitize(remote));
           this.load();
-          ['set-nombre', 'set-whatsapp', 'set-email', 'set-instagram', 'set-dolar-manual', 'set-margen'].forEach(id => {
+          ['set-nombre', 'set-whatsapp', 'set-email', 'set-instagram', 'set-margen'].forEach(id => {
             const el = document.getElementById(id);
-            const key = { 'set-nombre': 'nombre', 'set-whatsapp': 'whatsapp', 'set-email': 'email', 'set-instagram': 'instagram', 'set-dolar-manual': 'dolarManual', 'set-margen': 'margen' }[id];
-            const val = AdminData.getSettings()[key];
+            const key = { 'set-nombre': 'nombre', 'set-whatsapp': 'whatsapp', 'set-email': 'email', 'set-instagram': 'instagram', 'set-margen': 'margen' }[id];
+            let val = AdminData.getSettings()[key];
+            if (key === 'margen') val = this.margenAPct(val);
             if (el && document.activeElement !== el && val != null && val !== '') el.value = val;
           });
+          const red = document.getElementById('set-redondeo');
+          if (red && document.activeElement !== red) red.value = String(this.redondeoActual(AdminData.getSettings()));
         }
       }).catch(() => {});
     }
@@ -62,10 +67,35 @@ const AdminSettings = {
    * Carga settings a nivel global (CONFIG y ADMIN_CONFIG).
    * LO NECESITA AdminApp.init() — no eliminar.
    */
+  margenAPct(m) {
+    const n = Number(m);
+    return n > 0 ? Math.round((n - 1) * 100) : '';
+  },
+
+  /**
+   * Envoltorio y etiqueta en pesos. Hasta nov/2026 se cargaban en USD (ej. 0,50):
+   * los guardados sin moneda se pasan a pesos con el dólar fijo de conversión.
+   */
+  costosVariablesEnPesos(cv) {
+    const c = { ...(cv && typeof cv === 'object' ? cv : {}) };
+    if (c.moneda !== 'ARS') {
+      const dolar = (typeof SheetsService !== 'undefined' && SheetsService.dolarConversion) ? SheetsService.dolarConversion() : 1570;
+      ['envoltorio', 'etiqueta'].forEach(k => { if (Number(c[k]) > 0) c[k] = Math.round(Number(c[k]) * dolar); });
+      c.moneda = 'ARS';
+    }
+    return c;
+  },
+
+  redondeoActual(settings) {
+    const r = settings?.redondeo;
+    if (r !== undefined && r !== null && r !== '' && Number(r) >= 0) return Number(r);
+    return Number(CONFIG?.cotizacion?.redondeo) || 0;
+  },
+
   load() {
     const settings = AdminData.getSettings();
+    if (settings.redondeo !== undefined && settings.redondeo !== '' && Number(settings.redondeo) >= 0) CONFIG.cotizacion.redondeo = Number(settings.redondeo);
 
-    if (settings.dolarManual) CONFIG.cotizacion.cotizacionManual = Number(settings.dolarManual) || CONFIG.cotizacion.cotizacionManual;
     if (settings.margen) CONFIG.cotizacion.margenGanancia = Number(settings.margen) || CONFIG.cotizacion.margenGanancia;
     if (settings.whatsapp) CONFIG.negocio.whatsapp = settings.whatsapp;
     if (settings.nombre) CONFIG.negocio.nombre = settings.nombre;
@@ -74,13 +104,8 @@ const AdminSettings = {
 
     // Gastos fijos
     if (settings.gastosFijos) Object.assign(ADMIN_CONFIG.gastosFijos, settings.gastosFijos);
-    // Costos variables
-    if (settings.costosVariables) Object.assign(ADMIN_CONFIG.costosVariables, settings.costosVariables);
-
-    // Sincronizar también hacia SheetsService (para la tienda)
-    if (SheetsService) {
-      SheetsService.cotizacionDolar = SheetsService.cotizacionDolar || Number(settings.dolarManual) || CONFIG.cotizacion.cotizacionManual;
-    }
+    // Costos variables (en pesos)
+    if (settings.costosVariables) Object.assign(ADMIN_CONFIG.costosVariables, this.costosVariablesEnPesos(settings.costosVariables));
   },
 
   sanitize(settings) {
@@ -94,8 +119,9 @@ const AdminSettings = {
       whatsapp: String(s.whatsapp || '').replace(/\D/g, ''),
       email: s.email || '',
       instagram: s.instagram || '',
-      dolarManual: Number(s.dolarManual) || 1200,
       margen: Number(s.margen) || 1.30,
+      redondeo: s.redondeo !== undefined && s.redondeo !== '' && Number(s.redondeo) >= 0 ? Number(s.redondeo) : (Number(CONFIG?.cotizacion?.redondeo) || 0),
+      impuestoVentasPct: Math.max(0, Number(s.impuestoVentasPct) || 0),
       gastosFijos: {
         alquiler: gastosFijos.alquiler || 0,
         servicios: gastosFijos.servicios || 0,
@@ -103,11 +129,12 @@ const AdminSettings = {
         transporte: gastosFijos.transporte || 0,
         otros: gastosFijos.otros || 0,
       },
-      costosVariables: {
+      costosVariables: this.costosVariablesEnPesos({
         envoltorio: costosVariables.envoltorio || 0,
         etiqueta: costosVariables.etiqueta || 0,
         comisionMP: costosVariables.comisionMP || 0.035,
-      },
+        moneda: costosVariables.moneda,
+      }),
     };
   },
 
@@ -123,18 +150,21 @@ const AdminSettings = {
       AdminApp.toast('El WhatsApp tiene que ir con código de país, sin espacios. Ej: 5493757338837', 'error');
       return;
     }
-    const margen = parseFloat(get('set-margen'));
-    if (margen && (margen < 1 || margen > 5)) {
-      AdminApp.toast('El margen es un multiplicador: 1.30 = 30% de ganancia', 'error');
+    // Se escribe como % (30); se guarda como multiplicador (1.30) como siempre
+    const pct = parseFloat(get('set-margen'));
+    if (get('set-margen').trim() && !(pct >= 0 && pct <= 400)) {
+      AdminApp.toast('La ganancia va en %: por ejemplo 30', 'error');
       return;
     }
+    const margen = pct >= 0 ? Math.round((1 + pct / 100) * 10000) / 10000 : 1.30;
     const settings = {
       nombre: get('set-nombre').trim(),
       whatsapp,
       email: get('set-email').trim(),
       instagram: get('set-instagram').trim().replace(/^@/, ''),
-      dolarManual: parseFloat(get('set-dolar-manual')) || 1200,
-      margen: parseFloat(get('set-margen')) || 1.30,
+      margen,
+      redondeo: Number(get('set-redondeo')) || 0,
+      impuestoVentasPct: Math.max(0, Math.min(50, parseFloat(get('set-impuesto-ventas')) || 0)),
       gastosFijos: {
         alquiler: parseFloat(get('set-gasto-alquiler')) || 0,
         servicios: parseFloat(get('set-gasto-servicios')) || 0,
@@ -143,9 +173,10 @@ const AdminSettings = {
         otros: parseFloat(get('set-gasto-otros')) || 0,
       },
       costosVariables: {
-        envoltorio: parseFloat(get('set-cv-envoltorio')) || 0,
-        etiqueta: parseFloat(get('set-cv-etiqueta')) || 0,
+        envoltorio: Math.round(parseFloat(get('set-cv-envoltorio')) || 0),
+        etiqueta: Math.round(parseFloat(get('set-cv-etiqueta')) || 0),
         comisionMP: parseFloat(get('set-cv-comision')) || 0.035,
+        moneda: 'ARS',
       },
     };
 
@@ -181,8 +212,8 @@ const AdminSettings = {
     if (settings.whatsapp) CONFIG.negocio.whatsapp = settings.whatsapp;
     if (settings.email) CONFIG.negocio.email = settings.email;
     if (settings.instagram) CONFIG.negocio.instagram = settings.instagram;
-    CONFIG.cotizacion.cotizacionManual = settings.dolarManual;
     CONFIG.cotizacion.margenGanancia = settings.margen;
+    CONFIG.cotizacion.redondeo = Number(settings.redondeo) || 0;
 
     // Disparar evento personalizado para que otros módulos reaccionen
     window.dispatchEvent(new CustomEvent('config:updated', { detail: settings }));
@@ -193,16 +224,6 @@ const AdminSettings = {
    EVENTOS GLOBALES PARA SINCRONÍA
    ============================================ */
 
-
-// Sincronizar dólar cuando cambia en admin
-window.addEventListener('dolar:updated', (e) => {
-  if (window.SheetsService) {
-    SheetsService.cotizacionDolar = e.detail;
-    if (window.App && App.productosFiltrados) {
-      App.renderProductos(App.productosFiltrados);
-    }
-  }
-});
 
 // Sincronizar productos cuando cambian en admin
 window.addEventListener('products:updated', async () => {

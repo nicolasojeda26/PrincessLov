@@ -48,10 +48,30 @@ const AdminPromos = {
     if ((reload && !this.dirty) || !this.data) {
       this.data = (typeof AdminData.getEffectivePromos === 'function')
         ? AdminData.getEffectivePromos() : (CONFIG.promos || {});
+      this.pasarAPesos(this.data);
     }
     root.innerHTML = this.layout();
     this.bind(root);
     this.pintarDirty();
+  },
+
+  /**
+   * Todo en pesos (nov/2026): combos y preventas viejos con precio en USD se muestran
+   * ya pasados a pesos (con el dólar fijo de conversión) y así se guardan.
+   */
+  pasarAPesos(data) {
+    if (!data || typeof SheetsService === 'undefined') return;
+    (data.combos || []).forEach(c => {
+      if (!(Number(c.precioARS) > 0) && Number(c.precioUSD) > 0) c.precioARS = SheetsService.calcularPrecioARS(c.precioUSD);
+      delete c.precioUSD;
+    });
+    (data.preventas || []).forEach(p => {
+      if (!(Number(p.precioARS) > 0) && Number(p.precioUSD) > 0) {
+        const prod = this.productos().find(x => String(x.id) === String(p.productoId));
+        p.precioARS = SheetsService.calcularPrecioARS(p.precioUSD, { ...(prod || {}), precioARSManual: null });
+      }
+      delete p.precioUSD;
+    });
   },
 
   /** Las promos NO se guardan solas: esta barra recuerda tocar "Guardar" */
@@ -173,20 +193,21 @@ const AdminPromos = {
 
   rowsCombos() {
     const lista = this.data.combos || [];
-    if (!lista.length) return '<p class="promos-empty">Sin combos. Elegí 2 o más productos y un precio especial (en USD).</p>';
+    if (!lista.length) return '<p class="promos-empty">Sin combos. Elegí 2 o más productos y el precio del combo en pesos. También podés armarlos desde cada producto (pestaña Precios).</p>';
     return lista.map((c, i) => `
       <div class="promos-row" data-kind="combos" data-idx="${i}">
         <div class="promos-row__grid">
           <label class="promos-field">Nombre
             <input type="text" data-field="nombre" value="${this.esc(c.nombre)}" placeholder="Set Rosario">
           </label>
-          <label class="promos-field">Precio combo (USD, 0 = 10% off)
-            <input type="number" step="0.01" data-field="precioUSD" value="${c.precioUSD}">
+          <label class="promos-field">Precio del combo (ARS, vacío = 10% off)
+            <input type="number" step="1" min="0" data-field="precioARS" value="${Number(c.precioARS) > 0 ? c.precioARS : ''}" placeholder="Ej: 25000">
           </label>
+          <div class="promos-field"><span class="promos-label">Por separado</span><strong data-combo-suma="${i}">${this.sumaCombo(c)}</strong></div>
         </div>
         <div class="promos-field promos-field--grow">
-          <span class="promos-label">Productos incluidos</span>
-          ${this.chips('combos', i, 'productoIds', c.productoIds || [], true)}
+          <span class="promos-label">Productos incluidos (tocá para elegir)</span>
+          ${this.chips('combos', i, 'productoIds', c.productoIds || [], false)}
         </div>
         <div class="promos-row__grid promos-row__grid--between">
           <label class="promos-field promos-field--grow">Descripción
@@ -224,7 +245,7 @@ const AdminPromos = {
     const lista = this.data.preventas || [];
     const prods = this.productos();
     const opts = prods.map(p => `<option value="${p.id}">${this.esc(p.nombre)}</option>`).join('');
-    if (!lista.length) return '<p class="promos-empty">Sin preventas. Elegí un producto, precio especial (USD) y fecha de lanzamiento.</p>';
+    if (!lista.length) return '<p class="promos-empty">Sin preventas. Elegí un producto, precio especial en pesos y fecha de lanzamiento.</p>';
     return lista.map((p, i) => `
       <div class="promos-row" data-kind="preventas" data-idx="${i}">
         <div class="promos-row__grid">
@@ -234,8 +255,8 @@ const AdminPromos = {
               ${opts.replace(`<option value="${p.productoId}">`, `<option value="${p.productoId}" selected>`)}
             </select>
           </label>
-          <label class="promos-field">Precio preventa (USD)
-            <input type="number" step="0.01" data-field="precioUSD" value="${p.precioUSD}">
+          <label class="promos-field">Precio preventa (ARS)
+            <input type="number" step="1" min="0" data-field="precioARS" value="${Number(p.precioARS) > 0 ? p.precioARS : ''}" placeholder="Ej: 15000">
           </label>
           <label class="promos-field">Fecha de lanzamiento
             <input type="datetime-local" data-field="fechaLanzamiento" value="${this.toLocalInput(p.fechaLanzamiento)}">
@@ -247,6 +268,14 @@ const AdminPromos = {
         </div>
       </div>
     `).join('');
+  },
+
+  /** Lo que salen los productos del combo comprados por separado */
+  sumaCombo(c) {
+    const ids = [...new Set((c.productoIds || []).map(String))];
+    if (!ids.length) return '—';
+    const suma = ids.reduce((s, id) => s + (AdminData.precioVentaARS(AdminData.getProduct(id)) || 0), 0);
+    return AdminData.formatARS(suma);
   },
 
   // ---------- CHIPS MULTISELECT ----------
@@ -321,6 +350,8 @@ const AdminPromos = {
         if (i >= 0) arr.splice(i, 1); else arr.push(v);
         rec[field] = arr;
         chip.classList.toggle('is-on', i < 0);
+        const sumaEl = kind === 'combos' ? document.querySelector(`[data-combo-suma="${idx}"]`) : null;
+        if (sumaEl) sumaEl.textContent = this.sumaCombo(rec);
         this.afterChange();
         return;
       }
@@ -351,9 +382,9 @@ const AdminPromos = {
     };
     if (kind === 'cupones') Object.assign(newRec, { codigo: '', tipo: 'percent', valor: 10, usosMax: 1000, desc: '' });
     else if (kind === 'flashSales') Object.assign(newRec, { nombre: 'Flash Sale', descuento: 10, desde: null, hasta: null, categorias: [] });
-    else if (kind === 'combos') Object.assign(newRec, { nombre: 'Combo', descripcion: '', productoIds: [], precioUSD: 0 });
+    else if (kind === 'combos') Object.assign(newRec, { nombre: 'Combo', descripcion: '', productoIds: [], precioARS: 0 });
     else if (kind === 'dosPorUno') Object.assign(newRec, { nombre: '2x1', categorias: [] });
-    else if (kind === 'preventas') Object.assign(newRec, { productoId: '', precioUSD: 0, fechaLanzamiento: null });
+    else if (kind === 'preventas') Object.assign(newRec, { productoId: '', precioARS: 0, fechaLanzamiento: null });
     (this.data[kind] = this.data[kind] || []).push(newRec);
     this.render(false);
     this.afterChange();
@@ -378,6 +409,8 @@ const AdminPromos = {
     if (cupones.some(c => !c.codigo)) { AdminApp.toast?.('Hay un cupón sin código: escribilo o borralo con 🗑', 'error'); return; }
     const repetido = cupones.find((c, i) => cupones.findIndex(x => x.codigo === c.codigo) !== i);
     if (repetido) { AdminApp.toast?.(`El código ${repetido.codigo} está repetido`, 'error'); return; }
+    const comboIncompleto = (this.data.combos || []).find(c => c.activo !== false && new Set((c.productoIds || []).map(String)).size < 2);
+    if (comboIncompleto) { AdminApp.toast?.(`El combo "${comboIncompleto.nombre || 'Combo'}" necesita al menos 2 productos`, 'error'); return; }
     this.dirty = false;
     this.pintarDirty();
     if (typeof AdminData.savePromos === 'function') AdminData.savePromos(this.data);

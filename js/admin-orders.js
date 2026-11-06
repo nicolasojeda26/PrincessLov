@@ -5,6 +5,7 @@
 const AdminOrders = {
   searchQuery: '',
   filterStatus: '',
+  filterOrigen: '',
 
   esc(s) { return escHtml(s); },
 
@@ -18,6 +19,15 @@ const AdminOrders = {
     const ofEstado = document.getElementById('of-estado');
     const ofPago = document.getElementById('of-pago');
     const ofEnvio = document.getElementById('of-envio');
+    const ofOrigen = document.getElementById('of-origen');
+    const filtroOrigen = document.getElementById('orders-filter-origen');
+    const origenes = ADMIN_CONFIG.origenesVenta || [];
+    if (ofOrigen) ofOrigen.innerHTML = origenes.map(o => `<option value="${o.id}">${o.icon} ${o.label}</option>`).join('');
+    if (filtroOrigen) {
+      const v = filtroOrigen.value;
+      filtroOrigen.innerHTML = '<option value="">Todos los canales</option>' + origenes.map(o => `<option value="${o.id}">${o.icon} ${o.label}</option>`).join('');
+      filtroOrigen.value = v;
+    }
 
     if (statusSelect) {
       statusSelect.innerHTML = '<option value="">Todos los estados</option>';
@@ -65,6 +75,10 @@ const AdminOrders = {
       orders = orders.filter(o => o.estado === this.filterStatus);
     }
 
+    if (this.filterOrigen) {
+      orders = orders.filter(o => AdminData.origenDe(o).id === this.filterOrigen);
+    }
+
     return orders.sort((a, b) => new Date(b.fecha || 0) - new Date(a.fecha || 0));
   },
 
@@ -97,7 +111,8 @@ const AdminOrders = {
             <div>
               <strong style="font-size:1rem;">${this.esc(o.cliente || 'Sin cliente')}</strong>
               <span style="font-size:0.8rem; color:var(--texto-secundario); margin-left:0.5rem;">#${this.esc(String(o.id || '').startsWith('PL-') ? o.id : String(o.id || '').slice(-6).toUpperCase())}</span>
-              ${o.origen === 'web-whatsapp' ? '<span class="order-origin">🌐 Web</span>' : ''}
+              <span class="order-origin">${AdminData.origenDe(o).icon} ${this.esc(AdminData.origenDe(o).label)}</span>
+              ${(() => { const p = Fin.pagoDePedido(o); return p.estado === 'pendiente' || p.estado === 'parcial' ? `<span class="order-origin order-debe">⏳ Debe ${AdminData.formatARS(p.saldo)}</span>` : (p.estado === 'pagado' && !p.sinRegistrar ? '<span class="order-origin">💳 Cobrado</span>' : ''); })()}
             </div>
             <span class="badge" style="background:${estado.color}; color:white;">${estado.icon} ${estado.label}</span>
           </div>
@@ -130,7 +145,16 @@ const AdminOrders = {
     this.renderList();
   },
 
-  openForm(id) {
+  filterByOrigen(origen) {
+    this.filterOrigen = origen;
+    this.renderList();
+  },
+
+  /**
+   * @param {string} id     pedido a editar (vacío = venta nueva)
+   * @param {Object} pre    datos para una venta nueva: { productoId, variante }
+   */
+  openForm(id, pre = {}) {
     this.populateFilters();
     const modal = document.getElementById('order-modal');
     const title = document.getElementById('order-modal-title');
@@ -148,18 +172,33 @@ const AdminOrders = {
       document.getElementById('of-pago').value = o.medioPago || '';
       document.getElementById('of-envio').value = o.metodoEnvio || '';
       document.getElementById('of-direccion').value = o.direccion || '';
-      document.getElementById('of-costo').value = o.costoTotal || 0;
+      document.getElementById('of-origen').value = AdminData.origenDe(o).id;
+      // Los pedidos de la web llegan sin costo: se sugiere el calculado
+      const costoEl = document.getElementById('of-costo');
+      costoEl.value = Number(o.costoTotal) || AdminData.costoPedido(o) || 0;
+      // Si el costo guardado es el calculado (no lo escribieron a mano), se recalcula al editar ítems
+      const calculado = AdminData.costoPedido(o);
+      costoEl.dataset.auto = !Number(o.costoTotal) || Math.abs(Number(o.costoTotal) - calculado) < 1 ? costoEl.value : '';
       document.getElementById('of-notas').value = o.notas || '';
 
       container.innerHTML = '';
       (o.items || []).forEach(item => this.addItemRow(item));
+      this.prepararCobro(o);
     } else {
-      title.textContent = 'Nuevo Pedido';
+      title.textContent = 'Registrar venta';
       document.getElementById('order-form').reset();
       document.getElementById('of-id').value = '';
-      document.getElementById('of-estado').value = 'pendiente';
+      // Venta cargada a mano (WhatsApp, Instagram, en persona): ya está hecha
+      document.getElementById('of-estado').value = 'confirmado';
+      document.getElementById('of-origen').value = pre.origen || 'whatsapp';
+      const costoEl = document.getElementById('of-costo');
+      costoEl.value = '';
+      costoEl.dataset.auto = '';
       container.innerHTML = '';
-      this.addItemRow();
+      const prod = pre.productoId ? AdminData.getProduct(pre.productoId) : null;
+      this.addItemRow(prod ? { productoId: prod.id, cantidad: 1, precioUnitario: AdminData.precioVentaARS(prod), variante: pre.variante || '' } : undefined);
+      this.recalcularCosto();
+      this.prepararCobro(null);
     }
 
     modal.classList.add('open');
@@ -188,7 +227,7 @@ const AdminOrders = {
         </select>
       </div>
       <div class="form-group" style="margin-bottom:0;">
-        <input type="number" class="order-item-cant" min="1" value="${item ? item.cantidad : 1}" placeholder="Cant." required>
+        <input type="number" class="order-item-cant" min="1" value="${item ? item.cantidad : 1}" placeholder="Cant." required oninput="AdminOrders.recalcularCosto()">
       </div>
       <div class="form-group" style="margin-bottom:0;">
         <input type="number" class="order-item-precio" step="0.01" value="${item ? Number(item.precioUnitario) || '' : ''}" placeholder="Precio unit. (ARS)">
@@ -197,7 +236,7 @@ const AdminOrders = {
       <div class="form-group order-item-variante-box" style="margin-bottom:0;">
         <select class="order-item-variante" aria-label="Talle / color"></select>
       </div>
-      <button type="button" class="btn btn-sm btn-danger" onclick="this.parentElement.remove()">✕</button>
+      <button type="button" class="btn btn-sm btn-danger" onclick="this.parentElement.remove(); AdminOrders.recalcularCosto()">✕</button>
     `;
     container.appendChild(row);
     this.llenarVariantes(row, item?.variante || '');
@@ -236,6 +275,110 @@ const AdminOrders = {
       this.llenarVariantes(row, '');
       const nomInput = row.querySelector('.order-item-nombre'); if (nomInput) nomInput.value = '';
     }
+    this.recalcularCosto();
+  },
+
+  /** Costo del pedido con el costo de cada producto (si no lo escribieron a mano) */
+  recalcularCosto() {
+    const el = document.getElementById('of-costo');
+    const hint = document.getElementById('of-costo-hint');
+    if (!el) return;
+    let total = 0, sinCosto = 0;
+    document.querySelectorAll('#order-items-container .order-item-row').forEach(row => {
+      const p = AdminData.getProduct(row.querySelector('.order-item-product')?.value);
+      if (!p) return;
+      const c = AdminData.costoUnitarioARS(p);
+      if (!c) sinCosto++;
+      total += c * (parseInt(row.querySelector('.order-item-cant')?.value) || 0);
+    });
+    total = Math.round(total);
+    const manual = el.value !== '' && el.value !== el.dataset.auto;
+    if (!manual) { el.value = total || ''; el.dataset.auto = el.value; }
+    if (hint) hint.textContent = manual ? 'Lo escribiste a mano' : (sinCosto ? `Calculado (hay ${sinCosto} producto${sinCosto > 1 ? 's' : ''} sin costo cargado)` : 'Calculado con el costo de cada producto');
+    this.actualizarCobro();
+  },
+
+  /* ---------- Cobro de la venta ---------- */
+  _cobroAuto: '',
+
+  totalFormulario() {
+    let t = 0;
+    document.querySelectorAll('#order-items-container .order-item-row').forEach(row => {
+      t += (parseFloat(row.querySelector('.order-item-precio')?.value) || 0) * (parseInt(row.querySelector('.order-item-cant')?.value) || 0);
+    });
+    const id = document.getElementById('of-id').value;
+    const previo = id ? AdminData.getOrder(id) : null;
+    return previo && Math.abs((previo.items || []).reduce((s, i) => s + i.precioUnitario * i.cantidad, 0) - t) < 1 ? (Number(previo.total) || t) : Math.round(t * 100) / 100;
+  },
+
+  prepararCobro(o) {
+    const sel = document.getElementById('of-cobro-forma');
+    const est = document.getElementById('of-cobro-estado');
+    if (!sel) return;
+    if (!sel.dataset.bound) {
+      sel.dataset.bound = '1';
+      sel.addEventListener('change', () => this.actualizarCobro());
+      document.getElementById('of-cobro-monto').addEventListener('input', () => this.actualizarCobro(true));
+      document.getElementById('of-pago').addEventListener('change', () => {
+        if (document.getElementById('of-id').value) return;
+        const c = Fin.cuentaParaMedio(document.getElementById('of-pago').value);
+        if (c) { sel.value = 'cuenta:' + c.id; this.actualizarCobro(); }
+      });
+      document.getElementById('order-items-container').addEventListener('input', () => this.actualizarCobro());
+    }
+    const p = o ? Fin.pagoDePedido(o) : null;
+    const opciones = FinUI.opcionesPago({ textoPendiente: 'Queda pendiente (me lo debe)' });
+    if (o) opciones.unshift({ v: 'nada', l: p.saldo > 0 ? '— Todavía no cobré —' : '— No registrar otro cobro —' });
+    sel.innerHTML = opciones.map(x => `<option value="${escHtml(x.v)}">${escHtml(x.l)}</option>`).join('');
+    if (o) {
+      sel.value = 'nada';
+      const cobros = Fin.cobrosDePedido(o.id);
+      est.innerHTML = (cobros.length ? `<ul class="order-cobros">${cobros.map(m => `<li>${AdminApp.formatDate(m.fecha)} · ${escHtml(Fin.origenMovimiento(m))}: <strong>${AdminData.formatARS(m.monto)}</strong> <button type="button" class="btn btn-sm btn-danger" onclick="AdminOrders.borrarCobro('${escJsAttr(m.id)}','${escJsAttr(o.id)}')" aria-label="Borrar cobro">✕</button></li>`).join('')}</ul>` : '') +
+        `<p class="order-cobro-resumen">${p.estado === 'cancelado' ? 'Pedido cancelado.' : p.saldo > 0 ? `⏳ Falta cobrar <strong>${AdminData.formatARS(p.saldo)}</strong>` : p.sinRegistrar ? '✅ Se toma como cobrado (sin cuenta registrada). Si querés, registrá en qué cuenta entró.' : '✅ Cobrado completo'}</p>`;
+      document.getElementById('of-envio-costo').value = Number(o.envioCosto) ? String(o.envioCosto) : '';
+      this._cobroAuto = '';
+      document.getElementById('of-cobro-monto').value = p.saldo > 0 ? String(p.saldo) : (p.sinRegistrar ? String(Number(o.total) || '') : '');
+    } else {
+      const c = Fin.cuentaParaMedio(document.getElementById('of-pago').value) || Fin.cuentaPorDefecto();
+      sel.value = c ? 'cuenta:' + c.id : 'pendiente';
+      est.innerHTML = '';
+      document.getElementById('of-envio-costo').value = '';
+      document.getElementById('of-cobro-monto').value = '';
+      this._cobroAuto = '';
+    }
+    this.actualizarCobro();
+  },
+
+  actualizarCobro(escribio) {
+    const sel = document.getElementById('of-cobro-forma');
+    const monto = document.getElementById('of-cobro-monto');
+    const box = document.getElementById('of-cobro-monto-box');
+    const hint = document.getElementById('of-cobro-hint');
+    if (!sel || !monto) return;
+    const forma = sel.value;
+    const sinCobro = forma === 'pendiente' || forma === 'nada';
+    if (box) box.hidden = sinCobro;
+    const id = document.getElementById('of-id').value;
+    if (!id && !escribio && (monto.value === '' || monto.value === this._cobroAuto)) {
+      const t = this.totalFormulario();
+      monto.value = t ? String(t) : '';
+      this._cobroAuto = monto.value;
+    }
+    const pago = FinUI.leerPago(forma);
+    const cuenta = pago?.cuentaId ? Fin.get('cuentas', pago.cuentaId) : null;
+    const m = Fin.parseMonto(monto.value) || 0;
+    const t = id ? Fin.pagoDePedido(AdminData.getOrder(id) || {}).saldo || this.totalFormulario() : this.totalFormulario();
+    if (hint) hint.innerHTML = sinCobro ? '' : [
+      m && m < t - 0.5 ? `Queda debiendo ${AdminData.formatARS(t - m)}` : '',
+      Number(cuenta?.comisionPct) ? `Comisión ${cuenta.nombre}: ${AdminData.formatARS(Math.round(m * cuenta.comisionPct) / 100)} (se carga sola como gasto)` : '',
+    ].filter(Boolean).join(' · ');
+  },
+
+  borrarCobro(movId, orderId) {
+    if (!confirm('¿Borrar este cobro? La plata sale de la cuenta.')) return;
+    Fin.borrarCobro(movId); // y la comisión que generó
+    this.prepararCobro(AdminData.getOrder(orderId));
+    this.renderList();
   },
 
   save(event) {
@@ -262,8 +405,11 @@ const AdminOrders = {
     const itemsIguales = previo && JSON.stringify((previo.items || []).map(i => [String(i.productoId), i.cantidad, Number(i.precioUnitario)])) === JSON.stringify(items.map(i => [String(i.productoId), i.cantidad, Number(i.precioUnitario)]));
     const total = itemsIguales ? (Number(previo.total) || sumaItems) : sumaItems;
 
+    if (!items.length) { AdminApp.toast('Agregá al menos un producto', 'error'); return; }
+
     const data = {
-      cliente: document.getElementById('of-cliente').value.trim(),
+      cliente: document.getElementById('of-cliente').value.trim() || ('Venta por ' + AdminData.origenDe({ origen: document.getElementById('of-origen').value }).label),
+      origen: document.getElementById('of-origen').value || 'admin',
       telefono: document.getElementById('of-telefono').value.trim(),
       email: document.getElementById('of-email').value.trim(),
       estado: document.getElementById('of-estado').value,
@@ -276,20 +422,44 @@ const AdminOrders = {
       total,
     };
 
+    // Cobro
+    const forma = document.getElementById('of-cobro-forma')?.value || 'nada';
+    const pago = FinUI.leerPago(forma);
+    const montoCobro = pago ? (Fin.parseMonto(document.getElementById('of-cobro-monto').value) || 0) : 0;
+    if (pago && !(montoCobro > 0)) { AdminApp.toast('Escribí cuánto se cobró (o elegí "Queda pendiente")', 'error'); return; }
+    const yaCobrado = previo ? Fin.cobradoDePedido(previo.id) : 0;
+    if (pago && montoCobro > total - yaCobrado + 0.5) { AdminApp.toast(`El cobro no puede ser más de lo que falta (${AdminData.formatARS(total - yaCobrado)})`, 'error'); return; }
+    data.envioCosto = Fin.parseMonto(document.getElementById('of-envio-costo')?.value) || 0;
+    data.cobro = forma === 'pendiente' ? 'pendiente' : (pago ? 'registrado' : (previo?.cobro || ''));
+    // Ficha del cliente (para la cuenta corriente)
+    const ficha = Fin.asegurarCliente(data);
+    if (ficha) data.clienteId = ficha.id;
+
+    // Cancelar una venta que ya se cobró: devolución o saldo a favor
+    if (previo && data.estado === 'cancelado' && previo.estado !== 'cancelado' && Fin.cobradoDePedido(previo.id) > 0) {
+      const neto = Fin.cobradoDePedido(previo.id);
+      const devolver = confirm(`Esta venta ya estaba cobrada (${AdminData.formatARS(neto)}).\n\n¿Le devolviste la plata?\nAceptar = registro la devolución (sale de la misma cuenta) y borro la comisión.\nCancelar = la plata queda${data.clienteId ? ' como saldo a favor de la clienta' : ' en la cuenta'}.`);
+      Fin.cancelarCobros({ ...previo, ...data }, devolver);
+    }
+
+    let pedido;
     if (id) {
-      AdminData.updateOrder(id, data);
+      pedido = AdminData.updateOrder(id, data);
       AdminApp.toast('Pedido actualizado');
     } else {
-      AdminData.addOrder(data);
-      AdminApp.toast('Pedido creado');
+      pedido = AdminData.addOrder(data);
+      AdminApp.toast(pago ? '✅ Venta registrada y cobrada' : '✅ Venta registrada (queda pendiente de cobro)');
     }
+    if (pedido && pago) Fin.cobrarPedido(pedido, { ...pago, monto: montoCobro });
 
     this.closeForm();
     this.renderList();
   },
 
   delete(id) {
-    if (confirm('¿Eliminar este pedido?')) {
+    const cobros = Fin.cobrosDePedido(id).length;
+    if (confirm(`¿Eliminar este pedido?${cobros ? `\n\nTambién se borran sus ${cobros} cobro(s) y las comisiones: la plata sale de las cuentas.` : ''}`)) {
+      Fin.borrarDePedido(id);
       AdminData.deleteOrder(id);
       AdminApp.toast('Pedido eliminado');
       this.renderList();

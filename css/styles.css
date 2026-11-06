@@ -705,7 +705,6 @@ input, select { font-family: inherit; font-size: inherit; }
 .product-card__prices { display: flex; align-items: baseline; gap: var(--sp-2); }
 .price--current { font-size: 14px; font-weight: 600; }
 .price--old { font-size: 12px; color: var(--text-muted); text-decoration: line-through; }
-.price--usd { font-size: 11px; color: var(--text-muted); }
 .product-card__stock { font-size: 10px; color: var(--text-muted); margin-top: var(--sp-1); }
 .product-card__stock--low { color: var(--primary); font-weight: 600; }
 
@@ -1176,6 +1175,11 @@ input, select { font-family: inherit; font-size: inherit; }
 .product-modal__badge--combo { background: #b45309; color: #fff; }
 .product-modal__badge--2x1 { background: #047857; color: #fff; }
 
+.product-modal__combo-note {
+  display: block; flex-basis: 100%; margin-top: var(--sp-2);
+  font-size: 13px; color: #b45309; font-weight: 600; line-height: 1.4;
+}
+.product-modal__price-row { flex-wrap: wrap; }
 .product-modal__preventa-note {
   display: inline-block; margin-top: var(--sp-2);
   font-size: 12px; color: #7c3aed; font-weight: 600;

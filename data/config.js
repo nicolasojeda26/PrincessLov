@@ -30,7 +30,7 @@ const CONFIG = {
   // Columna C: Categoría (ej: "Calzas", "Conjuntos", "Pijamas", etc.)
   // Columna D: Subcategoría (ej: "Largas", "Cortas")
   // Columna E: Descripción
-  // Columna F: Precio USD
+  // Columna F: PrecioUSD (vieja, ya no se usa: los precios van en PrecioARSManual, en pesos)
   // Columna G: URL de imagen
   // Columna H: Stock (cantidad)
   // Columna I: Activo (TRUE o FALSE)
@@ -46,20 +46,22 @@ const CONFIG = {
     // URL del Google Apps Script Web App (para sync bidireccional completa)
     // Obtené esta URL deployando el código de google-apps-script.gs como Web App
        appsScriptUrl: "https://script.google.com/macros/s/AKfycbxqv-rUKV1QWRQdnSP38mwoxj17dqZEjsWWpnAaHPQSzDSIh1udmRBEt7J0Vp8az52V/exec",
-    // URL para cotización del dólar (opcional, editá manualmente si no funciona)
-    dolarUrl: "https://criptoya.com/api/dolar", 
   },
 
   // ==========================================
-  // COTIZACIÓN DEL DÓLAR
+  // PRECIOS (todo en pesos argentinos)
   // ==========================================
-  // Si activás autoCotizacion, la web buscará el precio del dólar automáticamente.
-  // Si lo dejás en false, usará el valor de cotizacionManual.
+  // Desde nov/2026 la tienda y el admin trabajan solo en pesos: cada producto
+  // tiene su costo en pesos y su precio de venta fijo en pesos. El dólar ya no
+  // se consulta ni se muestra.
   cotizacion: {
-    autoCotizacion: true,         // true = busca online, false = usa manual
-    cotizacionManual: 1200,       // Valor manual del dólar (solo se usa si autoCotizacion es false)
-    margenGanancia: 1.30,         // Markup: 1.30 = 30% de ganancia sobre costo USD
-    // Fórmula: Precio ARS = Precio USD * Dólar * margenGanancia
+    margenGanancia: 1.30,         // Ganancia por defecto: 1.30 = costo + 30%
+    redondeo: 500,                // El precio calculado se redondea hacia arriba a este múltiplo (0 = sin redondeo).
+                                  // Se cambia desde el admin (Configuración). Tiene que coincidir con REDONDEO en Vercel.
+    // Precio = Costo en pesos × (1 + Ganancia %), redondeado.
+    // Dólar fijo SOLO para pasar a pesos datos viejos que quedaron en USD
+    // (dólar oficial del 06/11/2026). No se actualiza ni se muestra en ningún lado.
+    dolarConversion: 1570,
   },
 
   // ==========================================
@@ -131,9 +133,9 @@ const CONFIG = {
     // la tienda usa estos defaults. Estructura:
     // cupones:   { id, codigo, tipo: 'percent'|'fijo'|'shipping', valor, usosMax, activo, desc }
     // flashSales:{ id, nombre, descuento (%), desde, hasta (ISO), categorias[] (vacío = todas), activo }
-    // combos:    { id, nombre, descripcion, productoIds[], precioUSD, activo }
+    // combos:    { id, nombre, descripcion, productoIds[], precioARS, activo }
     // dosPorUno: { id, nombre, categorias[] (vacío = todas), activo }
-    // preventas: { id, productoId, precioUSD, fechaLanzamiento (ISO), activo }
+    // preventas: { id, productoId, precioARS, fechaLanzamiento (ISO), activo }
     cupones: [
       { id: 'cup-welcome10', codigo: 'WELCOME10', tipo: 'percent', valor: 10, usosMax: 1000, activo: true, desc: '10% de descuento' },
       { id: 'cup-princess20', codigo: 'PRINCESS20', tipo: 'percent', valor: 20, usosMax: 1000, activo: true, desc: '20% de descuento' },
@@ -202,9 +204,9 @@ const CONFIG = {
       desc: "Recibí cada mes una cajita curada con lencería, accesorios y sorpresas PrincessLov. Elegí tu plan y sumate al club más querido.",
       heroImage: "assets/conjunto-flores-rosa.jpg",
       boxes: [
-        { id: "box-esencial", nombre: "Caja Esencial", descripcionCorta: "1 conjunto + sorpresa", detalleCompleto: "1 conjunto a elección (deportivo o lencería)\n1 sorpresa PrincessLov", precioUSD: 25, imagenUrl: "", desc: "1 conjunto + sorpresa", icon: "🎀", destacado: false, tag: "Más elegida" },
-        { id: "box-premium", nombre: "Caja Premium", descripcionCorta: "2 conjuntos + accesorio + sorpresa", detalleCompleto: "2 conjuntos a elección\n1 accesorio\n1 sorpresa PrincessLov", precioUSD: 38, imagenUrl: "", desc: "2 conjuntos + accesorio + sorpresa", icon: "👑", destacado: true, tag: "Premium" },
-        { id: "box-deluxe", nombre: "Caja Deluxe", descripcionCorta: "3 conjuntos + 2 accesorios + sorpresa VIP", detalleCompleto: "3 conjuntos a elección\n2 accesorios\n1 sorpresa VIP + envío prioritario", precioUSD: 52, imagenUrl: "", desc: "3 conjuntos + 2 accesorios + sorpresa VIP", icon: "💎", destacado: false, tag: "Deluxe" },
+        { id: "box-esencial", nombre: "Caja Esencial", descripcionCorta: "1 conjunto + sorpresa", detalleCompleto: "1 conjunto a elección (deportivo o lencería)\n1 sorpresa PrincessLov", precioARS: 51500, imagenUrl: "", desc: "1 conjunto + sorpresa", icon: "🎀", destacado: false, tag: "Más elegida" },
+        { id: "box-premium", nombre: "Caja Premium", descripcionCorta: "2 conjuntos + accesorio + sorpresa", detalleCompleto: "2 conjuntos a elección\n1 accesorio\n1 sorpresa PrincessLov", precioARS: 78000, imagenUrl: "", desc: "2 conjuntos + accesorio + sorpresa", icon: "👑", destacado: true, tag: "Premium" },
+        { id: "box-deluxe", nombre: "Caja Deluxe", descripcionCorta: "3 conjuntos + 2 accesorios + sorpresa VIP", detalleCompleto: "3 conjuntos a elección\n2 accesorios\n1 sorpresa VIP + envío prioritario", precioARS: 106500, imagenUrl: "", desc: "3 conjuntos + 2 accesorios + sorpresa VIP", icon: "💎", destacado: false, tag: "Deluxe" },
       ],
       benefits: ["Envío gratis en todas las cajas", "20% off transferencias", "3 cuotas sin interés"],
       formTitle: "Quiero sumarme al Club",

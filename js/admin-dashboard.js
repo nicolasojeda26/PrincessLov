@@ -64,6 +64,19 @@ const AdminDashboard = {
     const stats = AdminData.getStats(this.currentPeriod === 'all' ? null : this.currentPeriod);
     this.renderVentasChart(stats);
     this.renderEstadosChart(stats);
+    this.renderPorCanal(stats);
+  },
+
+  /** Cuánto se vendió por WhatsApp, por la web, etc. */
+  renderPorCanal(stats) {
+    const el = document.getElementById('ventas-por-canal');
+    if (!el) return;
+    const lista = stats.porOrigen || [];
+    el.innerHTML = lista.length ? `<h4>Ventas por canal</h4>` + lista.map(o => `
+      <div class="ventas-canal__fila">
+        <span>${o.icon} ${escHtml(o.label)}</span>
+        <span>${o.pedidos} venta${o.pedidos !== 1 ? 's' : ''} · <strong>${AdminData.formatARS(o.ingresos)}</strong></span>
+      </div>`).join('') : '';
   },
 
   renderVentasChart(stats) {
@@ -161,7 +174,7 @@ const AdminDashboard = {
   },
 
   renderBreakEven() {
-    const be = AdminData.calcularPuntoEquilibrio(AdminApp.dolarRate);
+    const be = AdminData.calcularPuntoEquilibrio();
     const container = document.getElementById('breakeven-content');
     if (!container) return;
 
@@ -261,7 +274,7 @@ const AdminDashboard = {
     const periodo = this.currentPeriod === 'all' ? null : this.currentPeriod;
     const stats = AdminData.getStats(periodo);
     const totalExpenses = AdminData.getTotalExpenses(periodo);
-    const be = AdminData.calcularPuntoEquilibrio(AdminApp.dolarRate);
+    const be = AdminData.calcularPuntoEquilibrio();
 
     const container = document.getElementById('financial-stats');
     if (container) {
@@ -420,7 +433,7 @@ const AdminDashboard = {
 
   renderFinancialExpenses() {
     const periodo = this.currentPeriod === 'all' ? null : this.currentPeriod;
-    let expenses = AdminData.getExpenses().sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+    let expenses = Fin.gastos().sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
     if (periodo) {
       expenses = expenses.filter(e => AdminData.isInPeriod(e.fecha, periodo));
     }
@@ -437,7 +450,8 @@ const AdminDashboard = {
       <div style="display:flex; align-items:center; gap:1rem; padding:0.75rem 0; border-bottom:1px solid var(--gris-200);">
         <span style="flex:1; font-size:0.85rem; font-weight:500;">${escHtml(e.concepto)}</span>
         <span style="font-size:0.8rem; color:var(--texto-secundario);">${AdminApp.formatDate(e.fecha)}</span>
-        <span style="font-size:0.8rem; padding:0.2rem 0.5rem; border-radius:20px; background:var(--gris-200);">${escHtml(e.categoria)}</span>
+        <span style="font-size:0.8rem; padding:0.2rem 0.5rem; border-radius:20px; background:var(--gris-200);">${Fin.tipoGasto(e.tipo).icon} ${escHtml(Fin.tipoGasto(e.tipo).label)}</span>
+        ${FinUI.badgeEstado(Fin.estadoGasto(e))}
         <span style="font-weight:700; color:#EF4444;">-${AdminData.formatARS(e.monto)}</span>
       </div>
     `).join('');

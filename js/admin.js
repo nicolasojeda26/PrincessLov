@@ -4,7 +4,6 @@
 
 const AdminApp = {
   currentSection: 'dashboard',
-  dolarRate: 1200,
 
   /** Título, subtítulo y ayuda corta de cada sección (lo que ve la dueña) */
   SECTIONS: {
@@ -16,18 +15,24 @@ const AdminApp = {
     categories: ['Categorías', 'Cómo se agrupa tu catálogo', 'Aparecen en los filtros, en el menú "Colección" y en el pie de la página.'],
     club: ['Club Prince', 'Cajas de suscripción', 'Editá las 3 cajas y los textos del club. Abajo ves quién se anotó.'],
     shipping: ['Envíos', 'Formas de entrega y precios', 'Lo que pongas acá es lo que la clienta elige en el carrito y en el pedido.'],
-    financial: ['Finanzas', 'Ingresos, costos y ganancia', 'Elegí el período arriba. La ganancia se calcula con el costo que cargues en cada pedido.'],
-    expenses: ['Gastos', 'Lo que gastás en el negocio', 'Cargá alquiler, envoltorios, publicidad, etc. para ver tu ganancia real en Finanzas.'],
+    financial: ['Finanzas', 'Cómo viene el negocio', 'Arriba, el mes en curso: ventas, ganancia, plata en las cuentas y lo que te deben o debés. Abajo, la ganancia por categoría en el período que elijas.'],
+    expenses: ['Gastos', 'Lo que gastás en el negocio', 'Cargá cada gasto con su tipo y si ya está pagado o queda pendiente. Los que se repiten todos los meses, en "Gastos fijos del mes".'],
+    cuentas: ['Cuentas', 'Dónde está la plata', 'Efectivo, Mercado Pago, banco: cada cobro suma y cada pago resta. Si la plata real no coincide, corregí el saldo con ⚖️.'],
+    clientes: ['Clientes', 'Quién te compra y quién te debe', 'Se arman solos con cada venta. "Cuenta corriente" muestra lo que compró y pagó cada clienta.'],
+    proveedores: ['Proveedores', 'A quién le comprás y cuánto le debés', 'Lo que le debés sale de los gastos pendientes de cada proveedor.'],
+    socios: ['Socios', 'Aportes y retiros de las dueñas', 'Los retiros no son gastos: no bajan la ganancia del negocio, pero sí la plata de las cuentas.'],
+    caja: ['Caja', 'Apertura, cierre y arqueo', 'Abrí la caja con el efectivo del día y cerrala contando la plata: te dice si sobra o falta.'],
+    reportes: ['Reportes', 'Estados de gestión, flujo de caja y rentabilidad', 'Elegí el reporte arriba. Se pueden exportar a Excel (CSV) o imprimir.'],
     import: ['Importar / Exportar', 'Carga masiva y respaldos', 'Subí un Excel para cargar muchos productos de una, o descargá tus datos como respaldo.'],
     settings: ['Configuración', 'Datos del negocio y conexión', ''],
   },
 
   async init() {
-    await this.loadDolarRate();
     AdminData.applyCustomToConfig?.();
     AdminSettings.load();
     const inicial = (location.hash || '').replace('#', '');
     this.navigate(this.HASH_TO_SECTION[inicial] || 'dashboard');
+    try { window.dispatchEvent(new Event('admin:ready')); } catch {}
     window.addEventListener('hashchange', () => {
       const sec = this.HASH_TO_SECTION[(location.hash || '').replace('#', '')];
       if (sec && sec !== this.currentSection) this.navigate(sec);
@@ -38,6 +43,7 @@ const AdminApp = {
     inicio: 'dashboard', pedidos: 'orders', productos: 'products', promociones: 'promos',
     pagina: 'home', categorias: 'categories', club: 'club', envios: 'shipping',
     finanzas: 'financial', gastos: 'expenses', importar: 'import', configuracion: 'settings',
+    cuentas: 'cuentas', clientes: 'clientes', proveedores: 'proveedores', socios: 'socios', caja: 'caja', reportes: 'reportes',
   },
 
   navigate(section) {
@@ -80,11 +86,17 @@ const AdminApp = {
 
   renderSection(section) {
     switch (section) {
-      case 'dashboard': AdminDashboard.render(); this.renderChecklist(); break;
+      case 'dashboard': AdminDashboard.render(); this.renderChecklist(); AdminReportes.renderResumen('dashboard-finanzas'); break;
       case 'products': AdminProducts.render(); break;
       case 'orders': AdminOrders.render(); break;
       case 'expenses': AdminExpenses.render(); break;
-      case 'financial': AdminDashboard.renderFinancial(); break;
+      case 'financial': AdminDashboard.renderFinancial(); AdminReportes.renderResumen('fin-resumen'); break;
+      case 'cuentas': AdminCuentas.render(); break;
+      case 'clientes': AdminClientes.render(); break;
+      case 'proveedores': AdminProveedores.render(); break;
+      case 'socios': AdminSocios.render(); break;
+      case 'caja': AdminCaja.render(); break;
+      case 'reportes': AdminReportes.render(); break;
       case 'home': AdminHome.render(); break;
       case 'categories': AdminContent.renderCategorias(); break;
       case 'club': AdminContent.renderClub(); break;
@@ -107,6 +119,11 @@ const AdminApp = {
     const set = (id, n) => { const el = document.getElementById(id); if (el) { el.textContent = n; el.hidden = !n; } };
     set('nav-badge-orders', pend);
     set('nav-badge-stock', sinStock);
+    try {
+      set('nav-badge-gastos', Fin.gastos().filter(g => Fin.estadoGasto(g) !== 'pagado').length);
+      const caja = document.getElementById('nav-badge-caja');
+      if (caja) { const t = Fin.turnoAbierto(); caja.textContent = t ? 'abierta' : ''; caja.hidden = !t; }
+    } catch {}
     const qa = document.getElementById('qa-pendientes');
     if (qa) qa.textContent = pend;
   },
@@ -136,18 +153,6 @@ const AdminApp = {
       const h = new Date().getHours();
       title.textContent = (h < 13 ? '¡Buen día' : h < 20 ? '¡Buenas tardes' : '¡Buenas noches') + '! 👋';
     }
-  },
-
-  async loadDolarRate() {
-    try {
-      const resp = await fetch('https://criptoya.com/api/dolar');
-      const data = await resp.json();
-      this.dolarRate = data.oficial?.ask || data.blue?.ask || 1200;
-    } catch {
-      this.dolarRate = 1200;
-    }
-    const el = document.getElementById('admin-dolar-value');
-    if (el) el.textContent = '$' + this.dolarRate.toLocaleString('es-AR');
   },
 
   toast(message, type = 'success') {

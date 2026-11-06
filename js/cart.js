@@ -97,8 +97,7 @@ const CartService = {
     // Calcular precio ARS del producto (precio manual, oferta, preventa, flash y margen)
     const precioARS = (typeof PromoEngine !== 'undefined' && PromoEngine.precioCompraARS)
       ? PromoEngine.precioCompraARS(producto)
-      : SheetsService.calcularPrecioARS(producto.precioUSD, producto);
-    const precioUSD = producto.precioUSD;
+      : SheetsService.precioARS(producto);
 
     if (!(stockLimite > 0)) return false;
 
@@ -113,7 +112,6 @@ const CartService = {
         id: producto.id,
         nombre: producto.nombre,
         imagen: producto.imagen,
-        precioUSD: precioUSD,
         precioARS: precioARS,
         cantidad: Math.min(cantidad, stockLimite),
         stock: stockLimite,
@@ -276,12 +274,12 @@ const CartService = {
    */
   getLineasSubtotalARS() {
     this.items.forEach(item => {
-      // Recalcular por si cambió el dólar o expiró una promo
+      // Recalcular por si cambió el precio o expiró una promo
       const producto = SheetsService.obtenerProducto(item.id);
       if (producto) {
         item.precioARS = (typeof PromoEngine !== 'undefined' && PromoEngine.precioCompraARS)
           ? PromoEngine.precioCompraARS(producto)
-          : SheetsService.calcularPrecioARS(producto.precioUSD, producto);
+          : SheetsService.precioARS(producto);
       }
     });
     return this.items.reduce((sum, i) => sum + (i.precioARS * i.cantidad), 0);
@@ -426,13 +424,6 @@ const CartService = {
   },
 
   /**
-   * Obtiene el total en USD
-   */
-  getTotalUSD() {
-    return this.items.reduce((sum, i) => sum + (i.precioUSD * i.cantidad), 0);
-  },
-
-  /**
    * Limpia el carrito
    */
   clear() {
@@ -551,7 +542,7 @@ const CartService = {
    */
   generarMensajeProducto(producto, cantidad = 1, variant = null) {
     const isClub = (producto.categoria === 'club-prince' || producto.isClubPrince || (Array.isArray(producto.tags) && producto.tags.some(t => String(t).toLowerCase().includes('club'))));
-    const precioARS = (typeof PromoEngine !== 'undefined' && PromoEngine.precioVistaARS) ? PromoEngine.precioVistaARS(producto) : SheetsService.calcularPrecioARS(producto.precioUSD, producto);
+    const precioARS = (typeof PromoEngine !== 'undefined' && PromoEngine.precioVistaARS) ? PromoEngine.precioVistaARS(producto) : SheetsService.precioARS(producto);
     const variantText = variant ? `\n${variant.color} / ${variant.talle}` : '';
     if (isClub) {
       return `Yanela del club Prince quiero esto\n\n• ${producto.nombre}${variantText} x${cantidad} - ${SheetsService.formatPrecioARS(precioARS * cantidad)}`;

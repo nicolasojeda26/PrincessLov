@@ -54,12 +54,30 @@
         <span class="nav-icon">🚚</span><span class="nav-label">Envíos</span>
       </a>
 
-      <div class="nav-section">Números</div>
+      <div class="nav-section">Finanzas</div>
       <a href="#finanzas" class="nav-item" data-section="financial" onclick="return AdminApp.navigate('financial')">
-        <span class="nav-icon">📈</span><span class="nav-label">Finanzas</span>
+        <span class="nav-icon">📈</span><span class="nav-label">Resumen</span>
       </a>
       <a href="#gastos" class="nav-item" data-section="expenses" onclick="return AdminApp.navigate('expenses')">
-        <span class="nav-icon">💸</span><span class="nav-label">Gastos</span>
+        <span class="nav-icon">💸</span><span class="nav-label">Gastos</span><span class="nav-badge nav-badge--warn" id="nav-badge-gastos" hidden></span>
+      </a>
+      <a href="#cuentas" class="nav-item" data-section="cuentas" onclick="return AdminApp.navigate('cuentas')">
+        <span class="nav-icon">🏦</span><span class="nav-label">Cuentas</span>
+      </a>
+      <a href="#clientes" class="nav-item" data-section="clientes" onclick="return AdminApp.navigate('clientes')">
+        <span class="nav-icon">👥</span><span class="nav-label">Clientes</span>
+      </a>
+      <a href="#proveedores" class="nav-item" data-section="proveedores" onclick="return AdminApp.navigate('proveedores')">
+        <span class="nav-icon">🏭</span><span class="nav-label">Proveedores</span>
+      </a>
+      <a href="#socios" class="nav-item" data-section="socios" onclick="return AdminApp.navigate('socios')">
+        <span class="nav-icon">🤝</span><span class="nav-label">Socios</span>
+      </a>
+      <a href="#caja" class="nav-item" data-section="caja" onclick="return AdminApp.navigate('caja')">
+        <span class="nav-icon">🧾</span><span class="nav-label">Caja</span><span class="nav-badge" id="nav-badge-caja" hidden></span>
+      </a>
+      <a href="#reportes" class="nav-item" data-section="reportes" onclick="return AdminApp.navigate('reportes')">
+        <span class="nav-icon">📊</span><span class="nav-label">Reportes</span>
       </a>
 
       <div class="nav-section">Herramientas</div>
@@ -88,9 +106,6 @@
       </div>
       <div class="topbar-right">
         <button type="button" class="sync-badge" id="admin-sync-badge" onclick="AdminSync.sincronizar(true)" title="Estado de conexión con Google Sheets">⏳ Conectando…</button>
-        <div class="dolar-badge" id="admin-dolar-badge" title="Cotización usada para pasar precios en USD a pesos">
-          💵 <strong id="admin-dolar-value">$--</strong>
-        </div>
       </div>
     </div>
     <p class="section-help" id="section-help"></p>
@@ -110,6 +125,9 @@
           <div class="welcome-card__actions">
             <button class="quick-action" onclick="AdminApp.navigate('orders')">
               <span class="quick-action__num" id="qa-pendientes">0</span><span class="quick-action__label">pedidos por confirmar</span>
+            </button>
+            <button class="quick-action" onclick="AdminApp.navigate('orders'); setTimeout(()=>AdminOrders.openForm(), 150)">
+              <span class="quick-action__icon">💬</span><span class="quick-action__label">Registrar venta</span>
             </button>
             <button class="quick-action" onclick="AdminApp.navigate('products'); setTimeout(()=>AdminProducts.openForm(), 150)">
               <span class="quick-action__icon">➕</span><span class="quick-action__label">Cargar producto</span>
@@ -148,6 +166,7 @@
         <div class="stats-grid" id="dashboard-stats">
           <!-- Rendered by JS -->
         </div>
+        <div id="dashboard-finanzas" class="fin-resumen"></div>
 
         <!-- Charts Row -->
         <div class="charts-grid">
@@ -158,6 +177,7 @@
           <div class="chart-card">
             <h3>Pedidos por estado</h3>
             <canvas id="chart-estados"></canvas>
+            <div class="ventas-canal" id="ventas-por-canal"></div>
           </div>
         </div>
 
@@ -200,8 +220,8 @@
                 <th>Imagen</th>
                 <th>Nombre</th>
                 <th>Categoría</th>
-                <th>Precio USD</th>
-                <th>Precio ARS</th>
+                <th>Costo</th>
+                <th>Precio venta</th>
                 <th>Stock</th>
                 <th>Estado</th>
                 <th>Acciones</th>
@@ -228,9 +248,12 @@
             <select id="orders-filter-status" onchange="AdminOrders.filterByStatus(this.value)">
               <option value="">Todos los estados</option>
             </select>
+            <select id="orders-filter-origen" onchange="AdminOrders.filterByOrigen(this.value)" aria-label="Filtrar por canal">
+              <option value="">Todos los canales</option>
+            </select>
           </div>
           <div class="toolbar-right">
-            <button class="btn btn-primary" onclick="AdminOrders.openForm()">+ Nuevo Pedido</button>
+            <button class="btn btn-primary" onclick="AdminOrders.openForm()">💬 Registrar venta</button>
             <button class="btn btn-secondary" onclick="AdminOrders.exportPDF()">📄 Exportar PDF</button>
             <button class="btn btn-secondary" onclick="AdminOrders.exportCSV()">📤 Exportar CSV</button>
           </div>
@@ -254,7 +277,7 @@
             <strong>Categoría, Precio, Precio oferta, Stock, Talles, Imagen, Descripción</strong>.
           </p>
           <p style="color:var(--texto-secundario); margin-bottom:1rem; font-size:0.85rem;">
-            💡 Los precios pueden ir en pesos (16.000) o en dólares: se detecta solo y te lo muestra antes de confirmar.
+            💡 Los precios van en pesos (16.000 o 16000). Antes de confirmar te muestra cómo va a quedar cada uno.
             Los talles van así: <code>S:1, M:2</code>. Si un producto ya existe (mismo nombre o ID), se actualiza
             solo con lo que trae el archivo: no se le borra la foto ni los talles. Para editar todo el catálogo,
             exportalo abajo, cambiá lo que quieras y volvé a subirlo.
@@ -300,26 +323,21 @@
 
       <!-- ===== EXPENSES ===== -->
       <section id="section-expenses" class="admin-section">
-        <div class="products-toolbar">
-          <div class="toolbar-left">
-            <h3 style="color:var(--borgona-400);">Gastos del Negocio</h3>
-          </div>
-          <div class="toolbar-right">
-            <button class="btn btn-primary" onclick="AdminExpenses.openForm()">+ Nuevo Gasto</button>
-          </div>
-        </div>
-        <div id="expenses-list">
-          <!-- Rendered by JS -->
-        </div>
-        <div id="expenses-empty" class="empty-state" style="display:none;">
-          <div class="empty-icon">💰</div>
-          <h3>No hay gastos registrados</h3>
-          <p>Registrá tus gastos fijos y variables para calcular el punto de equilibrio</p>
-        </div>
+        <div id="expenses-root"></div>
       </section>
+
+      <!-- ===== FINANZAS (nov/2026) ===== -->
+      <section id="section-cuentas" class="admin-section"><div id="cuentas-root"></div></section>
+      <section id="section-clientes" class="admin-section"><div id="clientes-root"></div></section>
+      <section id="section-proveedores" class="admin-section"><div id="proveedores-root"></div></section>
+      <section id="section-socios" class="admin-section"><div id="socios-root"></div></section>
+      <section id="section-caja" class="admin-section"><div id="caja-root"></div></section>
+      <section id="section-reportes" class="admin-section"><div id="reportes-root"></div></section>
 
       <!-- ===== FINANCIAL ===== -->
       <section id="section-financial" class="admin-section">
+        <div id="fin-resumen" class="fin-resumen"></div>
+        <h3 class="fin-subtitulo">📂 Ganancia por categoría y período</h3>
         <!-- Período compartido con Dashboard -->
         <div class="tab-nav" id="financial-tabs">
           <button class="tab" data-period="hoy" onclick="AdminDashboard.setPeriod('hoy')">Hoy</button>
@@ -430,7 +448,7 @@
                     <div class="form-group"><label>Nombre</label><input type="text" id="fr-club-box-0-nombre"></div>
                     <div class="form-group"><label>Emoji</label><input type="text" id="fr-club-box-0-icon" style="width:70px;"></div>
                     <div class="form-group"><label>Etiqueta (ej: Más elegida)</label><input type="text" id="fr-club-box-0-tag"></div>
-                    <div class="form-group"><label>Precio en USD (se pasa a pesos solo)</label><input type="number" step="0.01" id="fr-club-box-0-precio"></div>
+                    <div class="form-group"><label>Precio en pesos</label><input type="number" step="1" min="0" placeholder="Ej: 51500" id="fr-club-box-0-precio"></div>
                     <div class="form-group form-group--full"><label>Resumen (se ve en la tarjeta)</label><input type="text" id="fr-club-box-0-desc"></div>
                     <div class="form-group form-group--full"><label>Qué trae (se ve al tocar “Ver más”, un ítem por renglón)</label><textarea id="fr-club-box-0-detalle" rows="3" placeholder="Un ítem por línea"></textarea></div>
                     <div class="form-group form-group--full"><label>Foto (link https://, opcional)</label><input type="url" id="fr-club-box-0-imagen" placeholder="https://..."></div>
@@ -442,7 +460,7 @@
                     <div class="form-group"><label>Nombre</label><input type="text" id="fr-club-box-1-nombre"></div>
                     <div class="form-group"><label>Emoji</label><input type="text" id="fr-club-box-1-icon" style="width:70px;"></div>
                     <div class="form-group"><label>Etiqueta (ej: Más elegida)</label><input type="text" id="fr-club-box-1-tag"></div>
-                    <div class="form-group"><label>Precio en USD (se pasa a pesos solo)</label><input type="number" step="0.01" id="fr-club-box-1-precio"></div>
+                    <div class="form-group"><label>Precio en pesos</label><input type="number" step="1" min="0" placeholder="Ej: 51500" id="fr-club-box-1-precio"></div>
                     <div class="form-group form-group--full"><label>Resumen (se ve en la tarjeta)</label><input type="text" id="fr-club-box-1-desc"></div>
                     <div class="form-group form-group--full"><label>Qué trae (se ve al tocar “Ver más”, un ítem por renglón)</label><textarea id="fr-club-box-1-detalle" rows="3" placeholder="Un ítem por línea"></textarea></div>
                     <div class="form-group form-group--full"><label>Foto (link https://, opcional)</label><input type="url" id="fr-club-box-1-imagen" placeholder="https://..."></div>
@@ -454,7 +472,7 @@
                     <div class="form-group"><label>Nombre</label><input type="text" id="fr-club-box-2-nombre"></div>
                     <div class="form-group"><label>Emoji</label><input type="text" id="fr-club-box-2-icon" style="width:70px;"></div>
                     <div class="form-group"><label>Etiqueta (ej: Más elegida)</label><input type="text" id="fr-club-box-2-tag"></div>
-                    <div class="form-group"><label>Precio en USD (se pasa a pesos solo)</label><input type="number" step="0.01" id="fr-club-box-2-precio"></div>
+                    <div class="form-group"><label>Precio en pesos</label><input type="number" step="1" min="0" placeholder="Ej: 51500" id="fr-club-box-2-precio"></div>
                     <div class="form-group form-group--full"><label>Resumen (se ve en la tarjeta)</label><input type="text" id="fr-club-box-2-desc"></div>
                     <div class="form-group form-group--full"><label>Qué trae (se ve al tocar “Ver más”, un ítem por renglón)</label><textarea id="fr-club-box-2-detalle" rows="3" placeholder="Un ítem por línea"></textarea></div>
                     <div class="form-group form-group--full"><label>Foto (link https://, opcional)</label><input type="url" id="fr-club-box-2-imagen" placeholder="https://..."></div>
@@ -515,15 +533,30 @@
               </div>
             </div>
 
-            <h4 style="margin:1.5rem 0 1rem; color:var(--borgona-400);">Cotización y Márgenes</h4>
+            <h4 style="margin:1.5rem 0 1rem; color:var(--borgona-400);">Ganancia y redondeo</h4>
             <div class="form-grid">
               <div class="form-group">
-                <label>Cotización dólar manual</label>
-                <input type="number" id="set-dolar-manual" placeholder="1200">
+                <label for="set-margen">Ganancia por defecto (%)</label>
+                <input type="number" step="1" min="0" max="400" id="set-margen" placeholder="30">
+                <small class="form-hint">Se usa en los productos que no tienen su propio %. 30 = el precio es el costo + 30%.</small>
               </div>
               <div class="form-group">
-                <label>Margen de ganancia (ej: 1.30 = 30%)</label>
-                <input type="number" step="0.01" id="set-margen" placeholder="1.30">
+                <label for="set-redondeo">Redondear los precios calculados</label>
+                <select id="set-redondeo">
+                  <option value="0">Sin redondeo</option>
+                  <option value="100">Hacia arriba, de a $100 (15.873 → 15.900)</option>
+                  <option value="500">Hacia arriba, de a $500 (15.873 → 16.000)</option>
+                  <option value="1000">Hacia arriba, de a $1.000 (15.873 → 16.000)</option>
+                </select>
+                <small class="form-hint">No toca los precios que escribiste a mano ni los de oferta.</small>
+              </div>
+            </div>
+
+            <div class="form-grid">
+              <div class="form-group">
+                <label for="set-impuesto-ventas">Impuestos sobre las ventas (%)</label>
+                <input type="number" step="0.1" min="0" max="50" id="set-impuesto-ventas" placeholder="Ej: 3">
+                <small class="form-hint">Monotributo / Ingresos Brutos estimado. Se usa en los reportes como costo de cada venta (0 = no se cuenta).</small>
               </div>
             </div>
 
@@ -551,15 +584,15 @@
               </div>
             </div>
 
-            <h4 style="margin:1.5rem 0 1rem; color:var(--borgona-400);">Costos Variables (USD)</h4>
+            <h4 style="margin:1.5rem 0 1rem; color:var(--borgona-400);">Costos Variables (ARS)</h4>
             <div class="form-grid">
               <div class="form-group">
-                <label>Envoltorio por unidad</label>
-                <input type="number" step="0.01" id="set-cv-envoltorio" placeholder="0.50">
+                <label>Envoltorio por unidad ($)</label>
+                <input type="number" step="1" min="0" id="set-cv-envoltorio" placeholder="Ej: 500">
               </div>
               <div class="form-group">
-                <label>Etiqueta por unidad</label>
-                <input type="number" step="0.01" id="set-cv-etiqueta" placeholder="0.10">
+                <label>Etiqueta por unidad ($)</label>
+                <input type="number" step="1" min="0" id="set-cv-etiqueta" placeholder="Ej: 150">
               </div>
               <div class="form-group">
                 <label>Comisión Mercado Pago</label>
@@ -650,17 +683,25 @@
         <!-- TAB 2: PRECIOS & STOCK -->
         <div class="form-tab-panel" id="tab-precios" role="tabpanel">
           <div class="form-section">
-            <h4>💵 Precios</h4>
+            <h4>💵 Costo y precio de venta</h4>
             <div class="form-grid">
               <div class="form-group">
-                <label for="pf-preciousd">Precio costo USD *</label>
-                <input type="number" step="0.01" min="0" id="pf-preciousd" required>
-                <small class="form-hint">Tu costo base en dólares. El precio ARS se calcula automáticamente (USD × Dólar × Margen)</small>
+                <label for="pf-preciousd" id="pf-costo-label">Lo que te costó (en pesos) *</label>
+                <input type="text" inputmode="numeric" autocomplete="off" id="pf-preciousd" placeholder="Ej: 10.000">
+                <small class="form-hint" id="pf-costo-hint">Precio de compra de una unidad, en pesos</small>
               </div>
               <div class="form-group">
-                <label for="pf-precio-ars-manual">Precio ARS manual (opcional)</label>
-                <input type="text" inputmode="numeric" autocomplete="off" id="pf-precio-ars-manual" class="input-ars" placeholder="Ej: 16.000 (vacío = automático)">
-                <small class="form-hint">Precio final en pesos. Podés escribirlo con o sin punto: 16000 o 16.000</small>
+                <label for="pf-ganancia">Ganancia %</label>
+                <input type="number" step="1" min="0" max="400" id="pf-ganancia" placeholder="Ej: 30">
+                <small class="form-hint" id="pf-ganancia-hint">Vacío = la ganancia general de Configuración</small>
+              </div>
+            </div>
+            <div class="precio-calculado" id="pf-precio-calculado" aria-live="polite"></div>
+            <div class="form-grid">
+              <div class="form-group">
+                <label for="pf-precio-ars-manual">Precio final a mano (opcional)</label>
+                <input type="text" inputmode="numeric" autocomplete="off" id="pf-precio-ars-manual" class="input-ars" placeholder="Vacío = el calculado">
+                <small class="form-hint">Solo si querés otro precio distinto al calculado. Ej: 16.000</small>
                 <small class="form-hint ars-preview" data-for="pf-precio-ars-manual"></small>
               </div>
               <div class="form-group">
@@ -669,12 +710,35 @@
                 <small class="form-hint">Si completás, se muestra tachado el precio normal y este en destacado</small>
                 <small class="form-hint ars-preview" data-for="pf-precio-oferta"></small>
               </div>
-              <div class="form-group">
-                <label for="pf-margen-personalizado">Margen personalizado %</label>
-                <input type="number" step="1" min="0" max="500" id="pf-margen-personalizado" placeholder="Ej: 30 para 30%">
-                <small class="form-hint">Sobrescribe el margen global solo para este producto</small>
+            </div>
+          </div>
+          <div class="form-section" id="pf-combos-section">
+            <h4>🎁 Combos con este producto</h4>
+            <div id="pf-combos-list"></div>
+            <div class="combo-builder" id="pf-combo-builder" hidden>
+              <div class="form-grid">
+                <div class="form-group form-group--full">
+                  <label>Se vende junto con</label>
+                  <div id="pf-combo-otros"></div>
+                  <button type="button" class="btn btn-sm btn-secondary" onclick="AdminProducts.comboAgregarOtro()">+ Otro producto más</button>
+                </div>
+                <div class="form-group">
+                  <label for="pf-combo-precio">Precio del combo (ARS)</label>
+                  <input type="text" inputmode="numeric" autocomplete="off" id="pf-combo-precio" class="input-ars" placeholder="Ej: 25.000">
+                  <small class="form-hint ars-preview" data-for="pf-combo-precio"></small>
+                </div>
+                <div class="form-group">
+                  <label for="pf-combo-nombre">Nombre del combo</label>
+                  <input type="text" id="pf-combo-nombre" placeholder="Ej: Combo 2 remeras">
+                </div>
+              </div>
+              <div class="combo-resumen" id="pf-combo-resumen"></div>
+              <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+                <button type="button" class="btn btn-sm btn-primary" onclick="AdminProducts.comboGuardar()">💾 Guardar combo</button>
+                <button type="button" class="btn btn-sm btn-secondary" onclick="AdminProducts.comboCerrar()">Cancelar</button>
               </div>
             </div>
+            <button type="button" class="btn btn-sm btn-secondary" id="pf-combo-nuevo" onclick="AdminProducts.comboAbrir()">🎁 Armar combo con este producto</button>
           </div>
           <div class="form-section">
             <h4>📦 Stock & Inventario</h4>
@@ -818,7 +882,7 @@
 <div class="modal-overlay" id="order-modal">
   <div class="modal">
     <div class="modal-header">
-      <h3 id="order-modal-title">Nuevo Pedido</h3>
+      <h3 id="order-modal-title">Registrar venta</h3>
       <button class="btn-close-modal" onclick="AdminOrders.closeForm()">✕</button>
     </div>
     <div class="modal-body">
@@ -826,8 +890,12 @@
         <input type="hidden" id="of-id">
         <div class="form-grid">
           <div class="form-group">
-            <label>Cliente *</label>
-            <input type="text" id="of-cliente" required>
+            <label for="of-origen">¿Por dónde fue la venta?</label>
+            <select id="of-origen"></select>
+          </div>
+          <div class="form-group">
+            <label for="of-cliente">Cliente</label>
+            <input type="text" id="of-cliente" placeholder="Nombre (opcional)">
           </div>
           <div class="form-group">
             <label>Teléfono</label>
@@ -863,12 +931,34 @@
 
         <div class="form-grid" style="margin-top:1rem;">
           <div class="form-group">
-            <label>Costo total (ARS)</label>
+            <label for="of-costo">Costo total (ARS)</label>
             <input type="number" id="of-costo" placeholder="0">
+            <small class="form-hint" id="of-costo-hint">Se calcula solo con el costo de cada producto</small>
           </div>
           <div class="form-group">
             <label>Notas</label>
             <input type="text" id="of-notas">
+          </div>
+        </div>
+
+        <div class="order-cobro" id="of-cobro-box">
+          <h4>💳 Cobro</h4>
+          <div id="of-cobro-estado"></div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="of-cobro-forma">¿Cómo se cobra?</label>
+              <select id="of-cobro-forma"></select>
+            </div>
+            <div class="form-group" id="of-cobro-monto-box">
+              <label for="of-cobro-monto">Monto cobrado</label>
+              <input type="text" inputmode="decimal" autocomplete="off" id="of-cobro-monto">
+              <small class="form-hint" id="of-cobro-hint"></small>
+            </div>
+            <div class="form-group">
+              <label for="of-envio-costo">Envío que pagás vos (opcional)</label>
+              <input type="text" inputmode="decimal" autocomplete="off" id="of-envio-costo" placeholder="Ej: 4.500">
+              <small class="form-hint">Lo que le pagás al correo por este pedido: cuenta como costo de la venta.</small>
+            </div>
           </div>
         </div>
       </form>
@@ -880,48 +970,15 @@
   </div>
 </div>
 
-<!-- EXPENSE FORM MODAL -->
-<div class="modal-overlay" id="expense-modal">
-  <div class="modal" style="max-width:450px;">
+<!-- FINANZAS: ventana de formularios y detalles -->
+<div class="modal-overlay" id="fin-modal">
+  <div class="modal fin-modal">
     <div class="modal-header">
-      <h3>Nuevo Gasto</h3>
-      <button class="btn-close-modal" onclick="AdminExpenses.closeForm()">✕</button>
+      <h3 id="fin-modal-title"></h3>
+      <button class="btn-close-modal" onclick="FinUI.cerrar()" aria-label="Cerrar">✕</button>
     </div>
-    <div class="modal-body">
-      <form id="expense-form" onsubmit="AdminExpenses.save(event)">
-        <div class="form-group">
-          <label>Concepto *</label>
-          <input type="text" id="ef-concepto" required placeholder="Ej: Alquiler, Empaquetado...">
-        </div>
-        <div class="form-grid">
-          <div class="form-group">
-            <label>Monto (ARS) *</label>
-            <input type="number" id="ef-monto" required>
-          </div>
-          <div class="form-group">
-            <label>Fecha</label>
-            <input type="date" id="ef-fecha">
-          </div>
-        </div>
-        <div class="form-group">
-          <label>Categoría</label>
-          <select id="ef-categoria">
-            <option value="fijo">Gasto fijo</option>
-            <option value="variable">Gasto variable</option>
-            <option value="envio">Envío</option>
-            <option value="otro">Otro</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Notas</label>
-          <input type="text" id="ef-notas" placeholder="Observaciones...">
-        </div>
-      </form>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-primary" onclick="document.getElementById('expense-form').requestSubmit()">💾 Guardar</button>
-      <button class="btn btn-secondary" onclick="AdminExpenses.closeForm()">Cancelar</button>
-    </div>
+    <div class="modal-body" id="fin-modal-body"></div>
+    <div class="modal-footer" id="fin-modal-footer"></div>
   </div>
 </div>
 
@@ -939,7 +996,9 @@
 <script src="js/admin-images.js"></script>
 <script src="js/admin-products.js"></script>
 <script src="js/admin-orders.js"></script>
-<script src="js/admin-expenses.js"></script>
+<script src="js/admin-fin-data.js"></script>
+<script src="js/admin-finanzas.js"></script>
+<script src="js/admin-reportes.js"></script>
 <script src="js/admin-import.js"></script>
 <script src="js/admin-content.js"></script>
 <script src="js/promos.js"></script>
