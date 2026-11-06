@@ -705,7 +705,6 @@ input, select { font-family: inherit; font-size: inherit; }
 .product-card__prices { display: flex; align-items: baseline; gap: var(--sp-2); }
 .price--current { font-size: 14px; font-weight: 600; }
 .price--old { font-size: 12px; color: var(--text-muted); text-decoration: line-through; }
-.price--usd { font-size: 11px; color: var(--text-muted); }
 .product-card__stock { font-size: 10px; color: var(--text-muted); margin-top: var(--sp-1); }
 .product-card__stock--low { color: var(--primary); font-weight: 600; }
 

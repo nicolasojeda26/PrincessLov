@@ -83,6 +83,8 @@ const server = http.createServer((req, res) => {
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 process.env.APPS_SCRIPT_URL = `http://127.0.0.1:${server.address().port}/exec`;
 process.env.MARGEN_GANANCIA = String(MARGEN);
+// Productos de prueba cargados con el costo viejo en USD: se pasan a pesos con este dólar fijo
+process.env.DOLAR_CONVERSION = String(DOLAR);
 
 const { cotizarCarrito, cotizacionAItemsMP } = await import('../api/_lib/pricing.js');
 
@@ -105,13 +107,14 @@ function nuevoCarrito() {
     CONFIG: { promos: PROMOS, envios: ENVIOS, enviosPrecioACoordinar: false /* estos tests comparan con Mercado Pago, que cobra el envío */, sheets: { appsScriptUrl: '' } },
     SheetsService: {
       productos,
-      cotizacionDolar: DOLAR,
+      dolarConversion: () => DOLAR,
       calcularPrecioARS: (usd, producto) => {
         if (producto?.precioARSManual) return Math.round(producto.precioARSManual);
         // Igual que SheetsService.calcularPrecioARS: redondeo hacia arriba a $500 (CONFIG.cotizacion.redondeo)
-        const v = Math.round(usd * DOLAR * (producto?.margenPersonalizado ?? MARGEN));
+        const v = Math.round((Number(usd) || 0) * DOLAR * (producto?.margenPersonalizado ?? MARGEN));
         return v > 0 ? Math.ceil(v / 500) * 500 : 0;
       },
+      precioARS(producto) { return this.calcularPrecioARS(producto?.precioUSD, producto); },
       obtenerProducto: (id) => productos.find((p) => p.id === id),
       formatPrecioARS: (n) => '$' + n,
     },

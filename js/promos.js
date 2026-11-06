@@ -69,7 +69,7 @@ const PromoEngine = {
         nombre: c.nombre || 'Combo',
         descripcion: c.descripcion || '',
         productoIds: arr(c.productoIds).map(String),
-        precioUSD: Number(c.precioUSD) || 0,
+        precioUSD: Number(c.precioUSD) || 0, // solo combos viejos (antes de oct/2026)
         precioARS: Math.max(0, Math.round(Number(c.precioARS) || 0)),
         activo: c.activo !== false,
       })),
@@ -82,7 +82,8 @@ const PromoEngine = {
       preventas: arr(cfg?.preventas).map(p => ({
         id: String(p.id || 'prev_' + Date.now().toString(36)),
         productoId: String(p.productoId || ''),
-        precioUSD: Number(p.precioUSD) || 0,
+        precioARS: Math.max(0, Math.round(Number(p.precioARS) || 0)),
+        precioUSD: Number(p.precioUSD) || 0, // solo preventas viejas cargadas en USD
         fechaLanzamiento: p.fechaLanzamiento || null,
         activo: p.activo !== false,
       })),
@@ -179,35 +180,30 @@ const PromoEngine = {
   },
 
   /* ---------- PRECIO EFECTIVO (preventa / flash / oferta) ---------- */
-  precioVistaUSD(producto) {
-    if (!producto) return 0;
-    let usd = Number(producto.precioUSD) || 0;
-    const flash = this.flashDeProducto(producto);
-    if (flash) usd = usd * (1 - flash.descuento / 100);
-    const prev = this.preventaDeProducto(producto);
-    if (prev && prev.precioUSD > 0) usd = prev.precioUSD;
-    return usd;
+  // Todo en pesos (nov/2026): precio del producto → flash sale → preventa → oferta (el menor)
+  precioBaseARS(producto) {
+    if (typeof SheetsService !== 'undefined' && SheetsService.precioARS) return SheetsService.precioARS(producto);
+    return Number(producto?.precioARSManual) || 0;
   },
 
-  precioBaseARS(producto) {
-    if (typeof SheetsService !== 'undefined' && SheetsService.calcularPrecioARS) {
-      return SheetsService.calcularPrecioARS(Number(producto?.precioUSD) || 0, producto);
+  /** Precio de preventa en pesos (las viejas cargadas en USD se pasan con el dólar de conversión) */
+  precioPreventa(prev, producto) {
+    if (!prev) return 0;
+    if (Number(prev.precioARS) > 0) return Math.round(Number(prev.precioARS));
+    if (Number(prev.precioUSD) > 0 && typeof SheetsService !== 'undefined' && SheetsService.calcularPrecioARS) {
+      return SheetsService.calcularPrecioARS(prev.precioUSD, { ...(producto || {}), precioARSManual: null });
     }
-    const dolar = (typeof SheetsService !== 'undefined' && SheetsService.cotizacionDolar) || 1200;
-    return Math.round((Number(producto?.precioUSD) || 0) * dolar * 1.3);
+    return 0;
   },
 
   /** Precio de vista final (promo > oferta fija, se usa el menor) */
   precioVistaARS(producto) {
-    const usd = this.precioVistaUSD(producto);
-    let base = (typeof SheetsService !== 'undefined' && SheetsService.calcularPrecioARS)
-      ? SheetsService.calcularPrecioARS(usd, producto)
-      : Math.round(usd * 1200 * 1.3);
-    // Productos con precio fijo en pesos: el flash sale se descuenta de ese precio
-    // (antes solo descontaba del precio en dólares y no les hacía nada).
-    const manual = Number(producto?.precioARSManual) || 0;
-    const flash = manual > 0 ? this.flashDeProducto(producto) : null;
-    if (flash) base = Math.round(manual * (1 - flash.descuento / 100));
+    let base = this.precioBaseARS(producto);
+    const flash = this.flashDeProducto(producto);
+    if (flash && base > 0) base = Math.round(base * (1 - flash.descuento / 100));
+    const prev = this.preventaDeProducto(producto);
+    const precioPrev = this.precioPreventa(prev, producto);
+    if (precioPrev > 0) base = precioPrev;
     if (producto && producto.precioOferta && Number(producto.precioOferta) > 0 && Number(producto.precioOferta) < base) {
       return Number(producto.precioOferta);
     }
@@ -252,7 +248,7 @@ const PromoEngine = {
 
   descuentoCombos(items, byId) {
     if (!this.config) return 0;
-    if (typeof SheetsService === 'undefined' || !SheetsService.calcularPrecioARS) return 0;
+    if (typeof SheetsService === 'undefined') return 0;
     const combos = this.config.combos.filter(c => c.activo && c.productoIds && c.productoIds.length);
     let total = 0;
     combos.forEach(c => {
@@ -266,7 +262,7 @@ const PromoEngine = {
       // Una unidad de cada producto del combo (si hay varias variantes, la más cara)
       const unidad = id => Math.max(0, ...(items || []).filter(it => String(it.id) === id).map(it => it.precioARS || 0));
       const sumaSet = ids.reduce((s, id) => s + unidad(id), 0);
-      // Precio fijo en pesos (oct/2026) o, en combos viejos, USD x dólar x margen
+      // Precio fijo en pesos (combos viejos en USD: se pasan con el dólar de conversión)
       const precioComboARS = this.precioCombo(c);
       if (precioComboARS > 0) {
         if (precioComboARS < sumaSet) total += (sumaSet - precioComboARS) * sets;
@@ -281,13 +277,7 @@ const PromoEngine = {
   precioCombo(c) {
     if (!c) return 0;
     if (Number(c.precioARS) > 0) return Math.round(Number(c.precioARS));
-    return Number(c.precioUSD) > 0 ? this.precioBaseARSNull(c.precioUSD) : 0;
-  },
-
-  precioBaseARSNull(usd) {
-    return (typeof SheetsService !== 'undefined' && SheetsService.calcularPrecioARS)
-      ? SheetsService.calcularPrecioARS(usd)
-      : Math.round(usd * 1200 * 1.3);
+    return Number(c.precioUSD) > 0 && typeof SheetsService !== 'undefined' ? SheetsService.calcularPrecioARS(c.precioUSD) : 0;
   },
 
   /** Líneas de descuento automático para mostrar en el carrito */

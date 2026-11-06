@@ -11,7 +11,6 @@ const AdminData = {
     orders: 'pl_admin_orders',
     expenses: 'pl_admin_expenses',
     settings: 'pl_admin_settings',
-    dolarHistory: 'pl_admin_dolar_history',
     categorias: 'pl_admin_categorias',
     contenido: 'pl_admin_contenido',
     promos: 'pl_admin_promos',
@@ -273,28 +272,26 @@ const AdminData = {
     return [talle && `Talle ${talle}`, color].filter(Boolean).join(' · ');
   },
 
-  /** Precio de venta real en pesos (precio fijo, oferta, flash o USD × dólar × margen) */
+  /** Precio de venta real en pesos (precio fijo, oferta o flash) */
   precioVentaARS(p) {
     if (!p) return 0;
     try {
       if (typeof PromoEngine !== 'undefined' && PromoEngine.precioVistaARS) return Math.round(PromoEngine.precioVistaARS(p)) || 0;
-      if (typeof SheetsService !== 'undefined') return Math.round(SheetsService.calcularPrecioARS(p.precioUSD, p)) || 0;
+      if (typeof SheetsService !== 'undefined') return Math.round(SheetsService.precioARS(p)) || 0;
     } catch {}
     return Number(p.precioARSManual) || 0;
   },
 
-  /** Dólar que usa el admin para pasar costos USD a pesos */
-  dolarActual() {
-    return (typeof AdminApp !== 'undefined' && AdminApp.dolarRate)
-      || (typeof SheetsService !== 'undefined' && SheetsService.cotizacionDolar)
-      || CONFIG?.cotizacion?.cotizacionManual || 1200;
-  },
-
-  /** Costo de UNA unidad en pesos (costo en pesos, o costo USD × dólar de hoy). 0 si no tiene costo. */
+  /**
+   * Costo de UNA unidad en pesos. 0 si no tiene costo.
+   * (Productos viejos con el costo en USD que todavía no se volvieron a guardar:
+   * se pasa a pesos con el dólar fijo de conversión.)
+   */
   costoUnitarioARS(p) {
     if (!p) return 0;
-    if (p.costoMoneda === 'ARS') return Math.round(Number(p.costoARS) || 0);
-    return Math.round((Number(p.precioUSD) || 0) * this.dolarActual());
+    if (Number(p.costoARS) > 0) return Math.round(Number(p.costoARS));
+    const usdViejo = Number(p.precioUSD) || 0;
+    return usdViejo > 0 && typeof SheetsService !== 'undefined' ? Math.round(usdViejo * SheetsService.dolarConversion()) : 0;
   },
 
   /** Costo de la mercadería de un pedido, con el costo cargado en cada producto */
@@ -398,21 +395,6 @@ const AdminData = {
 
   saveSettings(settings) {
     localStorage.setItem(this.KEYS.settings, JSON.stringify(settings));
-  },
-
-  // ==========================================
-  // HISTORIAL DÓLAR
-  // ==========================================
-  addDolarRate(rate) {
-    const history = this._readJSON(this.KEYS.dolarHistory, []);
-    history.push({ fecha: new Date().toISOString(), valor: rate });
-    // Mantener solo últimos 90 días
-    if (history.length > 90) history.splice(0, history.length - 90);
-    localStorage.setItem(this.KEYS.dolarHistory, JSON.stringify(history));
-  },
-
-  getDolarHistory() {
-    return this._readJSON(this.KEYS.dolarHistory, []);
   },
 
   // ==========================================
@@ -530,26 +512,24 @@ const AdminData = {
   /**
    * Punto de equilibrio: cuántas unidades necesitás vender para cubrir gastos fijos
    */
-  calcularPuntoEquilibrio(dolar) {
+  calcularPuntoEquilibrio() {
     const gastos = ADMIN_CONFIG.gastosFijos;
     const costosVar = ADMIN_CONFIG.costosVariables;
     const totalGastosFijos = Object.values(gastos).reduce((s, v) => s + (v || 0), 0);
 
-    // Calcular ganancia promedio por unidad (usando productos activos)
-    const products = this.getProducts().filter(p => p.activo && p.precioUSD > 0);
+    // Ganancia promedio por unidad, todo en pesos (productos activos con precio y costo cargados)
+    const products = this.getProducts().filter(p => p.activo && this.precioVentaARS(p) > 0 && this.costoUnitarioARS(p) > 0);
     if (products.length === 0) return { unidades: 0, monto: 0, gastosFijos: totalGastosFijos, gananciaPromUnit: 0 };
 
-    let gananciaTotalUSD = 0;
+    let gananciaTotal = 0;
     products.forEach(p => {
-      const precioVenta = p.precioUSD * (dolar || 1200) * (CONFIG?.cotizacion?.margenGanancia || 1.3);
-      const costoTotal = p.precioUSD + costosVar.envoltorio + costosVar.etiqueta;
-      const costoARS = costoTotal * (dolar || 1200);
-      const comisionMP = precioVenta * costosVar.comisionMP;
-      const gananciaUnit = precioVenta - costoARS - comisionMP;
-      gananciaTotalUSD += gananciaUnit;
+      const precioVenta = this.precioVentaARS(p);
+      const costoARS = this.costoUnitarioARS(p) + (Number(costosVar.envoltorio) || 0) + (Number(costosVar.etiqueta) || 0);
+      const comisionMP = precioVenta * (Number(costosVar.comisionMP) || 0);
+      gananciaTotal += precioVenta - costoARS - comisionMP;
     });
 
-    const gananciaPromUnit = gananciaTotalUSD / products.length;
+    const gananciaPromUnit = gananciaTotal / products.length;
     const unidades = gananciaPromUnit > 0 ? Math.ceil(totalGastosFijos / gananciaPromUnit) : 0;
 
     return {
@@ -601,10 +581,6 @@ const AdminData = {
 
   formatARS(val) {
     return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 }).format(val || 0);
-  },
-
-  formatUSD(val) {
-    return 'USD ' + new Intl.NumberFormat('en-US', { minimumFractionDigits: 2 }).format(val || 0);
   },
 
   formatNumber(val) {

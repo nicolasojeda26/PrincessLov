@@ -69,29 +69,15 @@ const AdminImport = {
       else if (has('total', 'subtotal')) set('total');
       else if (has('oferta', 'promo', 'descuento')) set('precioOferta');
       else if (has('margen')) set('margen');
-      else if (has('costo') && !has('envio')) set('costoUnitario');
+      // Planillas viejas con el costo en dólares (PrecioUSD): se pasa a pesos al importar
       else if (has('usd', 'dolar', 'u s') || compacto.includes('u$s')) set('precioUSD');
+      else if (has('costo') && !has('envio')) set('costoUnitario');
       else if (has('ars', 'pesos', 'manual', 'venta')) set('precioARS');
-      else if (has('precio', 'price', 'valor', 'importe')) set('precio'); // moneda a deducir por los montos
+      else if (has('precio', 'price', 'valor', 'importe')) set('precio'); // en pesos
       else if (has('producto', 'articulo', 'nombre', 'item', 'name')) set('producto');
     });
 
     return map;
-  },
-
-  /**
-   * Parsea el valor de observaciones para extraer el costo extra en USD.
-   * Ejemplos: "EL COSTO +0,50USD" → 0.50, "EL COSTO +1USD" → 1.00
-   */
-  parseObservaciones(obs) {
-    if (!obs) return 0;
-    const str = String(obs).toUpperCase();
-    // Buscar patrón "+XUSD" o "+X USD"
-    const match = str.match(/\+\s*(\d+[.,]?\d*)\s*USD/);
-    if (match) {
-      return parseFloat(match[1].replace(',', '.')) || 0;
-    }
-    return 0;
   },
 
   /**
@@ -224,15 +210,8 @@ const AdminImport = {
       return;
     }
 
-    // ¿La columna "Precio" (sin moneda) está en pesos o en dólares? Nadie vende lencería a
-    // más de USD 300: si los montos son grandes, son pesos. (Antes 16.000 pesos entraban
-    // como USD 16.000 y el producto quedaba en $ 32 millones.)
+    // Todos los precios y costos se toman en pesos (nov/2026)
     const filas = rawData.slice(headerRow + 1);
-    let precioGenericoEsARS = false;
-    if (colMap.precio !== undefined) {
-      const montos = filas.map(r => this.parseNumber(r?.[colMap.precio])).filter(n => n > 0).sort((x, y) => x - y);
-      precioGenericoEsARS = montos.length > 0 && montos[Math.floor(montos.length / 2)] >= 300;
-    }
 
     const existentes = AdminData.getProducts();
     const porId = new Map(existentes.map(p => [String(p.id), p]));
@@ -283,22 +262,16 @@ const AdminImport = {
       if (tiene('subcategoria')) item.subcategoria = txt(row, 'subcategoria');
       if (tiene('sku')) item.sku = txt(row, 'sku');
 
-      // --- Precios ---
+      // --- Precios (todo en pesos) ---
       const obs = txt(row, 'observaciones');
-      const costoUnit = tiene('costoUnitario') ? this.parseNumber(row[colMap.costoUnitario]) : 0;
-      let precioUSD = tiene('precioUSD') ? this.parseNumber(row[colMap.precioUSD]) : 0;
+      let costoUnit = tiene('costoUnitario') ? this.parseNumber(row[colMap.costoUnitario]) : 0;
+      // Planillas viejas con el costo en dólares: se pasa a pesos con el dólar de conversión
+      const usdViejo = tiene('precioUSD') ? this.parseNumber(row[colMap.precioUSD]) : 0;
+      if (!(costoUnit > 0) && usdViejo > 0) costoUnit = Math.round(usdViejo * SheetsService.dolarConversion());
       let precioARS = tiene('precioARS') ? this.parseNumber(row[colMap.precioARS]) : 0;
-      if (tiene('precio')) {
-        const n = this.parseNumber(row[colMap.precio]);
-        if (precioGenericoEsARS) precioARS = precioARS || n; else precioUSD = precioUSD || n;
-      }
-      precioUSD += this.parseObservaciones(obs);
-      // Costo en pesos: se guarda como costo en pesos (antes se pasaba a dólares
-      // y el precio cambiaba solo con el dólar aunque la mercadería se pagó en pesos)
-      const costoEnPesos = !precioUSD && !precioARS && costoUnit > 0;
-      if (costoEnPesos) { item.costoMoneda = 'ARS'; item.costoARS = Math.round(costoUnit); }
-      if (tiene('precioUSD') || tiene('precio') || precioUSD || !previo) item.precioUSD = Math.round(precioUSD * 100) / 100;
-      if (tiene('precioARS') || (tiene('precio') && precioGenericoEsARS)) item.precioARSManual = precioARS > 0 ? Math.round(precioARS) : null;
+      if (tiene('precio')) precioARS = precioARS || this.parseNumber(row[colMap.precio]);
+      if (costoUnit > 0) { item.costoMoneda = 'ARS'; item.costoARS = Math.round(costoUnit); }
+      if (tiene('precioARS') || tiene('precio')) item.precioARSManual = precioARS > 0 ? Math.round(precioARS) : null;
       if (tiene('precioOferta')) { const o = this.parseNumber(row[colMap.precioOferta]); item.precioOferta = o > 0 ? Math.round(o) : null; }
       // Margen: "30" = 30% · "1,3" = 30% (multiplicador) · "0,3" = 30%
       if (tiene('margen')) {
@@ -306,11 +279,11 @@ const AdminImport = {
         item.gananciaPct = m > 0 ? Math.round(m > 5 ? m : (m >= 1 ? (m - 1) * 100 : m * 100)) : null;
         item.margenPersonalizado = null;
       }
-      if (costoEnPesos && !item.precioARSManual) {
+      if (costoUnit > 0 && !item.precioARSManual) {
         if (item.gananciaPct == null) item.gananciaPct = Math.round(((Number(CONFIG.cotizacion.margenGanancia) || 1.3) - 1) * 100);
-        item.precioARSManual = SheetsService.precioDesdeCosto({ moneda: 'ARS', costo: item.costoARS, gananciaPct: item.gananciaPct });
+        item.precioARSManual = SheetsService.precioDesdeCosto({ costo: item.costoARS, gananciaPct: item.gananciaPct });
       }
-      if (costoUnit) item.costoUnitarioARS = costoUnit;
+      if (item.precioARSManual || item.costoARS || !previo) item.precioUSD = 0;
 
       // --- Textos y fotos ---
       if (tiene('descripcion') || (obs && !previo)) item.descripcion = txt(row, 'descripcion') || (previo ? previo.descripcion || '' : obs);
@@ -378,7 +351,6 @@ const AdminImport = {
       products.push(item);
     }
 
-    this.precioGenericoEsARS = precioGenericoEsARS;
     this.showPreview(products, filename + (this.workbook.SheetNames.length > 1 ? ' → ' + sheetName : ''));
   },
 
@@ -432,7 +404,6 @@ const AdminImport = {
       <span class="badge badge-active">${newCount} nuevos</span>
       <span class="badge" style="background:#F59E0B;color:white;">${updateCount} a actualizar</span>
       <span style="font-size:0.85rem; color:var(--texto-secundario);">${data.length} productos en "${escHtml(filename)}"</span>
-      ${this.precioGenericoEsARS ? '<span style="font-size:0.85rem; color:var(--texto-secundario);">· La columna de precio se tomó como <strong>pesos</strong></span>' : ''}
       ${data.some(p => !existingIds.has(p.id) && !p.imagen) ? '<span style="font-size:0.85rem; color:#b45309;">· Los productos nuevos sin foto se ven con un recuadro vacío: cargales la foto después de importar</span>' : ''}
     `;
 
@@ -456,7 +427,7 @@ const AdminImport = {
       <tr>
         <td><strong>${escHtml(p.nombre)}</strong></td>
         <td>${escHtml(final.categoriaOriginal || final.categoria || '-')}</td>
-        <td>${precio > 0 ? AdminData.formatARS(precio) : '<span style="color:#b91c1c;">Sin precio</span>'}${Number(final.precioUSD) > 0 && !final.precioARSManual ? ` <small style="color:var(--texto-secundario);">(${AdminData.formatUSD(final.precioUSD)})</small>` : ''}</td>
+        <td>${precio > 0 ? AdminData.formatARS(precio) : '<span style="color:#b91c1c;">Sin precio</span>'}</td>
         <td>${Number(final.stock) || 0}${(final.variantes || []).length ? ` <small style="color:var(--texto-secundario);">(${final.variantes.length} talles/colores)</small>` : ''}</td>
         <td>${final.imagen ? '✓' : '<span style="color:#b45309;">Sin foto</span>'}</td>
         <td><span class="badge ${esNuevo ? 'badge-active' : ''}" ${esNuevo ? '' : 'style="background:#F59E0B;color:white;"'}>${esNuevo ? 'Nuevo' : 'Se actualiza'}</span></td>
@@ -519,7 +490,7 @@ const AdminImport = {
       Subcategoria: p.subcategoria || '',
       SKU: p.sku || '',
       Descripcion: p.descripcion || '',
-      PrecioUSD: Number(p.precioUSD) || 0,
+      CostoARS: AdminData.costoUnitarioARS(p) || '',
       PrecioARSManual: p.precioARSManual || '',
       PrecioOferta: p.precioOferta || '',
       Stock: Number(p.stock) || 0,

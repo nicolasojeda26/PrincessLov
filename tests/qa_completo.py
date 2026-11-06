@@ -13,13 +13,15 @@ SRC = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "e2e_finanza
 exec(SRC.split("\nwith sync_playwright() as p:")[0])  # harness + hojas de finanzas
 from playwright.sync_api import sync_playwright
 
-DOLAR = 1200
+# Nov/2026: todo en pesos. Los números de prueba son los de antes (costos de 10/20/30 USD
+# a $1.200), ahora cargados directamente en pesos.
 def red(v, paso=500): v = round(v); return math.ceil(v / paso) * paso if v > 0 else 0
 def ars(n): return n
 
 def ctx_tienda(b, mobile=False):
     ctx, pg = nuevo(b, mobile=mobile)
-    ctx.route(re.compile(r"https://criptoya\.com/.*"), dolar_fijo)
+    # La tienda ya no consulta el dólar: cualquier pedido a CriptoYa es un error
+    ctx.route(re.compile(r"https://criptoya\.com/.*"), lambda route, req: (errors.append("pidió el dólar a CriptoYa"), route.abort()))
     return ctx, pg
 
 def sec(t): print(f"\n===== {t} =====")
@@ -41,14 +43,14 @@ with sync_playwright() as p:
     sec("catálogo")
     XSS = "Top <img src=x onerror=window.__xss=1> QA"
     prods = [
-        dict(nombre="Calza QA", categoria="calzas-largas", categoriaOriginal="Calzas Largas", precioUSD=10, stock=5,
+        dict(nombre="Calza QA", categoria="calzas-largas", categoriaOriginal="Calzas Largas", costoARS=12000, gananciaPct=30, precioARSManual=16000, stock=5,
              variantes=[{"color": "Negro", "colorHex": "#111111", "talle": "S", "stock": 3}, {"color": "Negro", "colorHex": "#111111", "talle": "M", "stock": 2}]),
-        dict(nombre=XSS, categoria="remeras", categoriaOriginal="Remeras", precioUSD=0, costoMoneda="ARS", costoARS=8000, gananciaPct=25, precioARSManual=10000, stock=4, variantes=[]),
-        dict(nombre="Pijama QA", categoria="pijamas", categoriaOriginal="Pijamas", precioUSD=20, precioOferta=25000, stock=6, variantes=[]),
-        dict(nombre="Body QA", categoria="ropa-interior", categoriaOriginal="Ropa Interior", precioUSD=5, precioARSManual=12000, stock=1, variantes=[]),
-        dict(nombre="Inactivo QA", categoria="remeras", categoriaOriginal="Remeras", precioUSD=10, stock=5, activo=False, variantes=[]),
-        dict(nombre="Sin stock QA", categoria="remeras", categoriaOriginal="Remeras", precioUSD=10, stock=0, variantes=[]),
-        dict(nombre="Preventa QA", categoria="buzos", categoriaOriginal="Buzos", precioUSD=30, stock=3, variantes=[]),
+        dict(nombre=XSS, categoria="remeras", categoriaOriginal="Remeras", costoARS=8000, gananciaPct=25, precioARSManual=10000, stock=4, variantes=[]),
+        dict(nombre="Pijama QA", categoria="pijamas", categoriaOriginal="Pijamas", costoARS=24000, gananciaPct=30, precioARSManual=31500, precioOferta=25000, stock=6, variantes=[]),
+        dict(nombre="Body QA", categoria="ropa-interior", categoriaOriginal="Ropa Interior", costoARS=6000, precioARSManual=12000, stock=1, variantes=[]),
+        dict(nombre="Inactivo QA", categoria="remeras", categoriaOriginal="Remeras", costoARS=12000, precioARSManual=16000, stock=5, activo=False, variantes=[]),
+        dict(nombre="Sin stock QA", categoria="remeras", categoriaOriginal="Remeras", costoARS=12000, precioARSManual=16000, stock=0, variantes=[]),
+        dict(nombre="Preventa QA", categoria="buzos", categoriaOriginal="Buzos", costoARS=36000, gananciaPct=30, precioARSManual=47000, stock=3, variantes=[]),
     ]
     for pr in prods:
         pr.setdefault("activo", True)
@@ -70,9 +72,9 @@ with sync_playwright() as p:
             {"id": "c4", "codigo": "APAGADO", "tipo": "percent", "valor": 50, "usosMax": 100, "activo": False, "desc": ""},
         ],
         "flashSales": [{"id": "f1", "nombre": "Flash QA", "descuento": 20, "desde": None, "hasta": None, "categorias": ["ropa-interior"], "activo": True}],
-        "combos": [{"id": "k1", "nombre": "Combo QA", "descripcion": "", "productoIds": [ids["Calza QA"], ids[XSS]], "precioARS": 22000, "precioUSD": 0, "activo": True}],
+        "combos": [{"id": "k1", "nombre": "Combo QA", "descripcion": "", "productoIds": [ids["Calza QA"], ids[XSS]], "precioARS": 22000, "activo": True}],
         "dosPorUno": [{"id": "d1", "nombre": "2x1", "categorias": ["pijamas"], "activo": True}],
-        "preventas": [{"id": "pv1", "productoId": ids["Preventa QA"], "precioUSD": 20, "fechaLanzamiento": "2030-01-01T00:00:00.000Z", "activo": True}],
+        "preventas": [{"id": "pv1", "productoId": ids["Preventa QA"], "precioARS": 31500, "fechaLanzamiento": "2030-01-01T00:00:00.000Z", "activo": True}],
     }
     ad.evaluate(f"AdminPromos.data = {json.dumps(promos)}; AdminPromos.save()"); ad.wait_for_timeout(500)
     check("promos publicadas", "Combo QA" in str(DB["Config"].get("promos", "")))
@@ -86,7 +88,7 @@ with sync_playwright() as p:
     check("tienda: oculta inactivo", "Inactivo QA" not in names)
     check("tienda: XSS no se ejecuta", st.evaluate("window.__xss") is None)
     pv = lambda n: st.evaluate(f"PromoEngine.precioVistaARS(SheetsService.productos.find(p=>p.nombre==={json.dumps(n)}))")
-    exp = {"Calza QA": red(10 * DOLAR * 1.3), XSS: 10000, "Pijama QA": 25000, "Body QA": round(12000 * 0.8), "Preventa QA": red(20 * DOLAR * 1.3)}
+    exp = {"Calza QA": 16000, XSS: 10000, "Pijama QA": 25000, "Body QA": round(12000 * 0.8), "Preventa QA": 31500}
     for n, e in exp.items():
         check(f"precio {n[:12]} = {e}", pv(n) == e, pv(n))
     card = st.text_content(f".product-card:has-text('Pijama QA')") or ""
@@ -152,7 +154,7 @@ with sync_playwright() as p:
     # Flash + preventa en carrito
     st.evaluate("CartService.clear()")
     st.evaluate(f"CartService.addItem(SheetsService.obtenerProducto('{ids['Body QA']}'),1); CartService.addItem(SheetsService.obtenerProducto('{ids['Preventa QA']}'),1)")
-    check("flash + preventa en carrito", st.evaluate("CartService.getSubtotalARS()") == 9600 + red(20 * DOLAR * 1.3), st.evaluate("CartService.getSubtotalARS()"))
+    check("flash + preventa en carrito", st.evaluate("CartService.getSubtotalARS()") == 9600 + 31500, st.evaluate("CartService.getSubtotalARS()"))
     check("Body: tope stock 1", st.evaluate(f"CartService.addItem(SheetsService.obtenerProducto('{ids['Body QA']}'),1)") == "max")
 
     # ---- Checkout ----
@@ -211,7 +213,7 @@ with sync_playwright() as p:
     ad.click("#order-modal .modal-footer .btn-primary"); ad.wait_for_timeout(800)
     marta = ad.evaluate("AdminData.getOrders().find(o=>o.cliente==='Marta QA')")
     check("venta: descuenta 2 del talle M", ad.evaluate(f"AdminData.getProduct('{ids['Calza QA']}').variantes.find(v=>v.talle==='M').stock") == s_m - 2)
-    check("venta: costo = 2 × 10 USD × 1200", marta["costoTotal"] == 24000, marta["costoTotal"])
+    check("venta: costo = 2 × $12.000", marta["costoTotal"] == 24000, marta["costoTotal"])
     check("venta parcial: debe 12.000", ad.evaluate(f"Fin.pagoDePedido(AdminData.getOrder('{marta['id']}')).saldo") == 12000)
     # Completar el cobro editando la venta
     ad.evaluate(f"AdminOrders.openForm('{marta['id']}')"); ad.wait_for_timeout(300)
@@ -276,7 +278,6 @@ with sync_playwright() as p:
         py = round(float(c.get("SaldoInicial") or 0) + sum(efecto(m, cid) for m in movs), 2)
         js = ad.evaluate(f"Fin.saldoCuenta(Fin.get('cuentas','{cid}'))")
         check(f"saldo {c['Nombre']} = cálculo independiente ({py})", abs(py - js) < 0.01, [py, js])
-    pij = red(20 * DOLAR * 1.3)  # el admin cobra el precio sin la oferta? (se verifica abajo)
     lucia = ad.evaluate("AdminData.getOrders().find(o=>o.cliente==='Lucía QA')")
     check("venta por MP: precio sugerido = precio de tienda (oferta 25.000)", lucia["total"] == 25000, lucia["total"])
     com = [g for g in DB["Gastos"] if g.get("Origen") == "comision"]
@@ -316,6 +317,13 @@ with sync_playwright() as p:
     check("impuesto 3% entra en costos", abs(r2["costoImpositivo"] - round(r2["ingresos"] * 3) / 100) < 0.01, r2["costoImpositivo"])
     t2ctx, t2 = ctx_tienda(b)
     t2.goto(BASE + "/index.html"); t2.wait_for_timeout(2500)
-    check("tienda: nuevo margen y redondeo (10×1200×1,5=18.000)", t2.evaluate(f"PromoEngine.precioVistaARS(SheetsService.obtenerProducto('{ids['Calza QA']}'))") == 18000)
+    # Los precios guardados en pesos no cambian solos: la ganancia nueva es para lo que se calcule de ahora en más
+    check("tienda: el precio en pesos no cambia con la ganancia general", t2.evaluate(f"PromoEngine.precioVistaARS(SheetsService.obtenerProducto('{ids['Calza QA']}'))") == 16000)
+    check("tienda: no muestra dólares", not re.search(r"USD|U\$S|d[oó]lar", t2.evaluate("document.body.innerText"), re.I))
+    ad.evaluate("AdminApp.navigate('products')"); ad.click("text=+ Nuevo Producto"); ad.wait_for_timeout(200)
+    ad.click(".form-tab[data-tab=precios]"); ad.fill("#pf-preciousd", "12.000"); ad.dispatch_event("#pf-preciousd", "input")
+    calc = ad.text_content("#pf-precio-calculado") or ""
+    check("admin: producto nuevo con ganancia 50% y redondeo $1.000 (12.000×1,5=18.000)", "18.000" in calc, calc)
+    ad.evaluate("AdminProducts.closeForm()")
 
     b.close()

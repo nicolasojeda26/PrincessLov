@@ -2,7 +2,7 @@
 #      python tests/e2e_finanzas.py
 """
 Finanzas como Gestión Moda (nov/2026): cuentas, socios, proveedores, gastos
-(pagados, pendientes, en USD y fijos del mes), cobros de ventas con comisión,
+(pagados, pendientes y fijos del mes, todo en pesos), cobros de ventas con comisión,
 clientes con cuenta corriente, transferencias, caja con arqueo, reportes y
 sincronización con otro dispositivo. Apps Script simulado con las hojas nuevas.
 """
@@ -101,11 +101,11 @@ with sync_playwright() as p:
     ad.evaluate("AdminExpenses.openForm()")
     form(ad, {"tipo": "comercializacion", "concepto": "Publicidad Instagram", "montoTxt": "20000", "pago": "pendiente"}); ok(ad)
     ad.evaluate("AdminExpenses.openForm()")
-    form(ad, {"tipo": "administracion", "concepto": "Hosting", "moneda": "USD", "montoTxt": "10", "pago": "pendiente"})
-    check("USD: muestra la conversión", "12.000" in (ad.text_content("#ff-montoTxt-hint") or ""), ad.text_content("#ff-montoTxt-hint"))
+    check("gasto: no ofrece moneda en dólares", ad.query_selector("#fin-form [name='moneda']") is None and not re.search(r"USD|d[oó]lar", ad.text_content("#fin-form") or "", re.I))
+    form(ad, {"tipo": "administracion", "concepto": "Hosting", "montoTxt": "12.000", "pago": "pendiente"})
     ok(ad)
     g = next((r for r in DB["Gastos"] if r.get("Concepto") == "Hosting"), {})
-    check("gasto USD guardado en pesos con cotización", g.get("Monto") == 12000 and g.get("MontoUSD") == 10 and g.get("Moneda") == "USD", g)
+    check("gasto guardado en pesos", g.get("Monto") == 12000 and not g.get("MontoUSD") and g.get("Moneda") in ("ARS", "", None), g)
     check("alquiler pagado desde el banco", saldo(ad, "Banco / Transferencia") == -50000)
     check("a pagar = publicidad + hosting", ev(ad, "Fin.aPagar()") == 32000, ev(ad, "Fin.aPagar()"))
     ad.screenshot(path=f"{SHOTS}/fin-gastos.png")

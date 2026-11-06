@@ -212,10 +212,17 @@ const AdminContent = {
       if (q('fr-club-box-'+i+'-desc')) q('fr-club-box-'+i+'-desc').value = b.descripcionCorta || b.desc || '';
       if (q('fr-club-box-'+i+'-detalle')) q('fr-club-box-'+i+'-detalle').value = b.detalleCompleto || '';
       if (q('fr-club-box-'+i+'-imagen')) q('fr-club-box-'+i+'-imagen').value = b.imagenUrl || b.imagen || '';
-      if (q('fr-club-box-'+i+'-precio')) q('fr-club-box-'+i+'-precio').value = b.precioUSD || '';
+      // Precio en pesos (las cajas viejas en USD se muestran ya pasadas a pesos)
+      if (q('fr-club-box-'+i+'-precio')) q('fr-club-box-'+i+'-precio').value = this.precioCajaARS(b) || '';
       if (q('fr-club-box-'+i+'-icon')) q('fr-club-box-'+i+'-icon').value = b.icon || '';
       if (q('fr-club-box-'+i+'-tag')) q('fr-club-box-'+i+'-tag').value = b.tag || '';
     }
+  },
+
+  /** Precio de una caja del Club Prince en pesos (las viejas en USD, pasadas con el dólar de conversión) */
+  precioCajaARS(b) {
+    if (Number(b?.precioARS) > 0) return Math.round(Number(b.precioARS));
+    return Number(b?.precioUSD) > 0 && typeof SheetsService !== 'undefined' ? SheetsService.calcularPrecioARS(b.precioUSD) : 0;
   },
 
   saveClub(e) {
@@ -243,7 +250,8 @@ const AdminContent = {
             desc: corta, // alias histórico
             detalleCompleto: get('fr-club-box-'+i+'-detalle') || base.detalleCompleto || '',
             imagenUrl: get('fr-club-box-'+i+'-imagen') || base.imagenUrl || base.imagen || '',
-            precioUSD: parseFloat(get('fr-club-box-'+i+'-precio')) || base.precioUSD || 0,
+            precioARS: Math.round(parseFloat(get('fr-club-box-'+i+'-precio'))) || this.precioCajaARS(base) || 0,
+            precioUSD: 0, // todo en pesos (nov/2026)
             icon: get('fr-club-box-'+i+'-icon') || base.icon,
             tag: get('fr-club-box-'+i+'-tag') || base.tag,
             destacado: base.destacado || i===1,

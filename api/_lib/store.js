@@ -10,7 +10,7 @@
  * Variables de entorno (Vercel > Settings > Environment Variables):
  *   APPS_SCRIPT_URL   URL /exec del Web App de Google Apps Script
  *   SHEETS_CSV_URL    (opcional) CSV publicado, se usa si falla Apps Script
- *   DOLAR_MANUAL      (opcional) cotizacion de respaldo. Default 1200
+ *   DOLAR_CONVERSION  (opcional) dolar fijo SOLO para pasar a pesos datos viejos en USD. Default 1570
  *   MARGEN_GANANCIA   (opcional) markup global. Default 1.30
  * ------------------------------------------------------------------
  */
@@ -42,8 +42,12 @@ export function redondeoGlobal() {
   return v !== undefined && v !== '' && Number(v) >= 0 ? Number(v) : 500;
 }
 
-export function dolarManual() {
-  return Number(process.env.DOLAR_MANUAL) || 1200;
+/**
+ * Todo en pesos (nov/2026): el dolar ya no se consulta. Este valor fijo solo pasa a
+ * pesos datos viejos que quedaron en USD (igual que CONFIG.cotizacion.dolarConversion).
+ */
+export function dolarConversion() {
+  return Number(process.env.DOLAR_CONVERSION) || 1570;
 }
 
 /* ================= Apps Script ================= */
@@ -184,34 +188,11 @@ export async function getProductos() {
   });
 }
 
-/* ================= Cotizacion del dolar ================= */
+/* ================= Dolar (solo datos viejos) ================= */
 
+/** Se mantiene el nombre por compatibilidad: devuelve el dolar fijo de conversion, sin consultar nada */
 export async function getCotizacion() {
-  return cached('dolar', async () => {
-    // 1) Historial propio en la planilla (misma fuente que usa la tienda)
-    try {
-      const data = await getFromAppsScript('dolar');
-      if (Array.isArray(data) && data.length) {
-        const valor = num(data[data.length - 1].Valor);
-        if (valor > 0) return valor;
-      }
-    } catch (e) {
-      console.warn('[store] dolar Apps Script fallo:', e.message);
-    }
-    // 2) CriptoYa
-    try {
-      const res = await fetch('https://criptoya.com/api/dolar');
-      if (res.ok) {
-        const d = await res.json();
-        const valor = num(d?.oficial?.ask ?? d?.blue?.ask);
-        if (valor > 0) return valor;
-      }
-    } catch (e) {
-      console.warn('[store] CriptoYa fallo:', e.message);
-    }
-    // 3) Manual
-    return dolarManual();
-  });
+  return dolarConversion();
 }
 
 /* ================= Config (promos + envios) ================= */

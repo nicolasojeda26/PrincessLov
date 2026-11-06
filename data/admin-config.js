@@ -13,10 +13,11 @@ const ADMIN_CONFIG = {
     otros: 0,
   },
 
-  // Costos variables por producto (en USD, se suman al precio de costo)
+  // Costos variables por producto (en pesos, se suman al costo)
   costosVariables: {
-    envoltorio: 0.50,   // USD por unidad
-    etiqueta: 0.10,     // USD por unidad
+    envoltorio: 785,    // $ por unidad
+    etiqueta: 157,      // $ por unidad
+    moneda: 'ARS',
     comisionMP: 0.046,  // 4.6% Mercado Pago
     comisionEnvio: 0,   // % adicional por envío (si lo absorbés)
   },

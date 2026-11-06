@@ -6,7 +6,7 @@
    - Movimientos: cobros de ventas, entregas a cuenta, pagos de gastos,
      transferencias entre cuentas, aportes y retiros de socios, ajustes
    - Socios, Proveedores, Clientes (cuenta corriente), Turnos de caja
-   - Gastos con tipo, proveedor, IVA, mes, pendiente/pagado, en USD y recurrentes
+   - Gastos con tipo, proveedor, IVA, mes, pendiente/pagado y recurrentes (todo en pesos)
 
    Se guarda en este navegador y, con el token, en la planilla (hojas
    Cuentas, Movimientos, Socios, Proveedores, Clientes, Turnos y Gastos).
@@ -184,9 +184,11 @@ const Fin = {
       mes: datos.mes || this.mesDe(new Date().toISOString()),
       iva: Number(datos.iva) || 0,
       fechaComprobante: datos.fechaComprobante || '',
-      moneda: datos.moneda === 'USD' ? 'USD' : 'ARS',
-      montoUSD: Number(datos.montoUSD) || 0,
-      cotizacion: Number(datos.cotizacion) || 0,
+      // Todo en pesos (nov/2026). Las columnas Moneda/MontoUSD/Cotizacion quedan
+      // solo por los gastos viejos que se cargaron en dólares.
+      moneda: 'ARS',
+      montoUSD: 0,
+      cotizacion: 0,
       recurrenteId: datos.recurrenteId || '',
       origen: datos.origen || 'manual',
       pedidoId: datos.pedidoId || '',
@@ -546,8 +548,12 @@ const Fin = {
   /* ==================== GASTOS RECURRENTES ==================== */
   recurrentes() {
     const v = this._read(this.RECURRENTES_KEY, null);
-    return v && typeof v === 'object' ? { plantillas: Array.isArray(v.plantillas) ? v.plantillas : [], auto: v.auto || { activo: false, dia: 1, registrarPagos: false } }
+    const r = v && typeof v === 'object' ? { plantillas: Array.isArray(v.plantillas) ? v.plantillas : [], auto: v.auto || { activo: false, dia: 1, registrarPagos: false } }
       : { plantillas: [], auto: { activo: false, dia: 1, registrarPagos: false } };
+    // Gastos fijos viejos cargados en dólares: se pasan a pesos con el dólar fijo de conversión
+    r.plantillas = r.plantillas.map(p => p && p.moneda === 'USD'
+      ? { ...p, monto: Math.round((Number(p.monto) || 0) * SheetsService.dolarConversion()), moneda: 'ARS' } : p);
+    return r;
   },
 
   guardarRecurrentes(r) {
@@ -567,18 +573,16 @@ const Fin = {
    */
   aplicarMes(mes, items) {
     const r = this.recurrentes();
-    const dolar = AdminData.dolarActual();
     let n = 0;
     items.forEach(it => {
       const p = r.plantillas.find(x => String(x.id) === String(it.plantillaId));
       if (!p || this.generadoDe(p.id, mes)) return;
-      const usd = p.moneda === 'USD';
       const montoBase = Number(it.monto ?? p.monto) || 0;
       if (!(montoBase > 0)) return;
       const fecha = this.fechaDeMes(mes);
       this.crearGasto({
         concepto: p.concepto, tipo: p.tipo, categoria: p.categoria || '', proveedorId: p.proveedorId || '', iva: p.iva || 0,
-        monto: usd ? Math.round(montoBase * dolar) : montoBase, moneda: usd ? 'USD' : 'ARS', montoUSD: usd ? montoBase : 0, cotizacion: usd ? dolar : 0,
+        monto: montoBase,
         mes, recurrenteId: p.id, origen: 'recurrente', fecha,
       }, it.pagar ? (it.socioId ? { socioId: it.socioId, fecha } : { cuentaId: it.cuentaId || p.cuentaId || this.cuentaPorDefecto()?.id, fecha }) : null);
       n++;

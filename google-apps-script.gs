@@ -92,7 +92,7 @@ const HEADER_KEY_BY_SHEET = Object.keys(SHEET_NAMES).reduce(function (acc, k) {
 // Claves de la hoja Config que la tienda puede leer sin token.
 // Lo demás (gastos fijos, costos, etc.) es privado.
 const CONFIG_PUBLICA = ['promos', 'clubPrince_boxes', 'contenido', 'categorias', 'envios',
-  'whatsapp', 'instagram', 'nombre', 'margen', 'dolarManual', 'redondeo'];
+  'whatsapp', 'instagram', 'nombre', 'margen', 'redondeo'];
 
 // coupon_uses es publico: los codigos ya estan en la config publica y solo
 // devuelve un numero (lo usa el carrito para respetar "Usos max.")
@@ -407,7 +407,7 @@ function upsertProduct(product, restaurar) {
     Categoria: product.categoriaOriginal || product.categoria,
     Subcategoria: product.subcategoria || '',
     Descripcion: product.descripcion || '',
-    PrecioUSD: product.precioUSD,
+    PrecioUSD: Number(product.precioUSD) || 0, // vieja: nov/2026 todo en pesos (PrecioARSManual)
     Imagen: product.imagen || '',
     Stock: product.stock || 0,
     Activo: product.activo !== false,
@@ -427,9 +427,9 @@ function upsertProduct(product, restaurar) {
     SEODesc: product.seoDesc || '',
     DescripcionCorta: product.descripcionCorta || '',
     StockMin: product.stockMin || 5,
-    // Oct/2026: costo en dólares o en pesos y % de ganancia propio del producto
+    // Costo en pesos y % de ganancia propio del producto (nov/2026: todo en pesos)
     GananciaPct: (product.gananciaPct === null || product.gananciaPct === undefined || product.gananciaPct === '') ? '' : Number(product.gananciaPct),
-    CostoMoneda: product.costoMoneda === 'ARS' ? 'ARS' : 'USD',
+    CostoMoneda: 'ARS',
     CostoARS: Number(product.costoARS) || '',
   };
 

@@ -3295,7 +3295,6 @@ body {
 .admin-topbar #page-title { font-size: 1.35rem; font-weight: 800; margin: 0; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .admin-topbar .breadcrumb { font-size: 0.8rem; color: var(--texto-secundario); }
 .admin-topbar .topbar-right { display: flex; align-items: center; gap: 0.6rem; margin-left: auto; flex-shrink: 0; }
-.dolar-badge { font-size: 0.8rem; background: var(--gris-100); border: 1px solid var(--gris-200); border-radius: 999px; padding: 0.35rem 0.75rem; white-space: nowrap; }
 .menu-toggle { display: none; width: 42px; height: 42px; border: 1px solid var(--gris-200); background: var(--blanco); border-radius: 10px; font-size: 1.2rem; cursor: pointer; flex-shrink: 0; }
 .section-help { margin: 1rem 2rem 0; padding: 0.7rem 1rem; background: var(--azul-100); color: #1E3A8A; border-radius: var(--radio-md); font-size: 0.86rem; line-height: 1.5; }
 .section-help[hidden] { display: none; }
@@ -3420,7 +3419,6 @@ body {
   .admin-topbar { padding: 0 0.75rem; height: 60px; gap: 0.6rem; }
   .admin-topbar #page-title { font-size: 1.1rem; }
   .admin-topbar .breadcrumb { display: none; }
-  .dolar-badge { display: none; }
   .section-help { margin: 0.75rem 1rem 0; font-size: 0.8rem; }
   .welcome-card { padding: 1.1rem; }
   .welcome-card__actions { grid-template-columns: repeat(2, 1fr); width: 100%; }

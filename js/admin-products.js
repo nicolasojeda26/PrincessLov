@@ -20,56 +20,37 @@ const AdminProducts = {
     return Number.isFinite(n) && n > 0 ? Math.round(n) : null;
   },
 
-  /** Costo en dólares: "12,50" · "12.50" · "USD 12" → 12.5 (en pesos usa parseARS) */
-  parseCosto(valor, moneda) {
-    if (moneda === 'ARS') return this.parseARS(valor);
-    let t = String(valor ?? '').trim().replace(/[$\s]|USD|U\$S|US\$/gi, '');
-    if (!t) return null;
-    if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(t)) t = t.replace(/\./g, '');  // 1.250,50
-    t = t.replace(',', '.');
-    const n = Number(t);
-    return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null;
-  },
-
   /** Ganancia % general (Configuración), ej. 30 */
   gananciaGlobalPct() {
     return Math.round(((Number(CONFIG?.cotizacion?.margenGanancia) || 1.3) - 1) * 100);
   },
 
-  /** Lo que hay escrito en Precios: moneda, costo, ganancia y el precio que sale */
+  /** Lo que hay escrito en Precios: costo (en pesos), ganancia y el precio que sale */
   leerCostoForm() {
-    const moneda = document.getElementById('pf-costo-moneda')?.value === 'ARS' ? 'ARS' : 'USD';
     const raw = document.getElementById('pf-preciousd')?.value || '';
-    const costo = this.parseCosto(raw, moneda);
+    const costo = this.parseARS(raw);
     const gRaw = document.getElementById('pf-ganancia')?.value ?? '';
     const gananciaPct = gRaw.trim() === '' ? null : Math.max(0, Number(gRaw) || 0);
-    const precio = costo ? SheetsService.precioDesdeCosto({ moneda, costo, gananciaPct: gananciaPct ?? this.gananciaGlobalPct() }) : 0;
-    return { moneda, raw, costo, gananciaPct, precio };
+    const precio = costo ? SheetsService.precioDesdeCosto({ costo, gananciaPct: gananciaPct ?? this.gananciaGlobalPct() }) : 0;
+    return { raw, costo, gananciaPct, precio };
   },
 
   /** Recuadro "Precio de venta: $16.000" con la cuenta */
   actualizarPrecioCalculado() {
     const box = document.getElementById('pf-precio-calculado');
-    const { moneda, raw, costo, gananciaPct, precio } = this.leerCostoForm();
-    const lbl = document.getElementById('pf-costo-label');
-    const hint = document.getElementById('pf-costo-hint');
-    const inp = document.getElementById('pf-preciousd');
-    if (lbl) lbl.textContent = moneda === 'ARS' ? 'Lo que te costó (en pesos) *' : 'Lo que te costó (USD) *';
-    if (inp) inp.placeholder = moneda === 'ARS' ? 'Ej: 10.000' : 'Ej: 12,50';
-    if (hint) hint.textContent = moneda === 'ARS' ? 'Precio de compra de una unidad, en pesos' : 'Precio de compra de una unidad, en dólares';
+    const { raw, costo, gananciaPct, precio } = this.leerCostoForm();
     const gHint = document.getElementById('pf-ganancia-hint');
     if (gHint) gHint.textContent = `Vacío = la general (${this.gananciaGlobalPct()}%)`;
     if (!box) return;
-    if (raw.trim() && !costo) { box.className = 'precio-calculado precio-calculado--error'; box.textContent = 'Revisá el costo: escribí solo el número'; return; }
+    if (raw.trim() && !costo) { box.className = 'precio-calculado precio-calculado--error'; box.textContent = 'Revisá el costo: escribilo en pesos, como 10000 o 10.000'; return; }
     if (!costo) { box.className = 'precio-calculado'; box.innerHTML = ''; return; }
     const g = gananciaPct ?? this.gananciaGlobalPct();
-    const dolar = SheetsService.cotizacionDolar || CONFIG.cotizacion.cotizacionManual;
-    const costoARS = moneda === 'ARS' ? costo : Math.round(costo * dolar);
+    const costoARS = costo;
     const sinRedondeo = Math.round(costoARS * (1 + g / 100));
     const manual = this.parseARS(document.getElementById('pf-precio-ars-manual')?.value);
     const red = Number(CONFIG?.cotizacion?.redondeo) || 0;
     const pasos = [
-      moneda === 'USD' ? `USD ${costo.toLocaleString('es-AR')} × dólar ${AdminData.formatARS(dolar)} = ${AdminData.formatARS(costoARS)}` : `Costo ${AdminData.formatARS(costoARS)}`,
+      `Costo ${AdminData.formatARS(costoARS)}`,
       `+ ${g}% de ganancia = ${AdminData.formatARS(sinRedondeo)}`,
       red && precio !== sinRedondeo ? `redondeado a ${AdminData.formatARS(precio)}` : '',
     ].filter(Boolean).join(' → ');
@@ -78,7 +59,7 @@ const AdminProducts = {
       <div class="precio-calculado__monto">Precio de venta: <strong>${AdminData.formatARS(precio)}</strong></div>
       <div class="precio-calculado__cuenta">${this.esc(pasos)}</div>
       <div class="precio-calculado__nota">${manual ? `Vas a usar el precio a mano (${AdminData.formatARS(manual)}): ganás ${AdminData.formatARS(manual - costoARS)} por unidad.`
-        : `Ganás ${AdminData.formatARS(precio - costoARS)} por unidad.${moneda === 'USD' ? ' Se actualiza solo cuando cambia el dólar.' : ''}`}</div>`;
+        : `Ganás ${AdminData.formatARS(precio - costoARS)} por unidad.`}</div>`;
   },
 
   formatInputARS(n) {
@@ -146,9 +127,9 @@ const AdminProducts = {
       });
     });
 
-    ['pf-costo-moneda', 'pf-preciousd', 'pf-ganancia', 'pf-precio-ars-manual'].forEach(id => {
+    ['pf-preciousd', 'pf-ganancia', 'pf-precio-ars-manual'].forEach(id => {
       const el = document.getElementById(id);
-      if (el) el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', () => this.actualizarPrecioCalculado());
+      if (el) el.addEventListener('input', () => this.actualizarPrecioCalculado());
     });
     const comboPrecio = document.getElementById('pf-combo-precio');
     if (comboPrecio) comboPrecio.addEventListener('input', () => this.comboResumen());
@@ -216,8 +197,8 @@ const AdminProducts = {
 
     tbody.innerHTML = products.map(p => {
       const precioARS = AdminData.precioVentaARS(p);
-      const costoTxt = p.costoMoneda === 'ARS' && Number(p.costoARS) > 0 ? AdminData.formatARS(p.costoARS)
-        : (Number(p.precioUSD) > 0 ? AdminData.formatUSD(p.precioUSD) : '');
+      const costoUnit = AdminData.costoUnitarioARS(p);
+      const costoTxt = costoUnit > 0 ? AdminData.formatARS(costoUnit) : '';
       const gan = p.gananciaPct != null && p.gananciaPct !== '' ? Number(p.gananciaPct) : null;
       // Mismo criterio que las alertas del Inicio: "stock bajo" es 3 o menos
       const stockClass = p.stock <= 3 ? 'badge-low-stock' : 'badge-active';
@@ -243,7 +224,7 @@ const AdminProducts = {
           </td>
           <td>${this.esc(p.categoriaOriginal || p.categoria || '-')}</td>
           <td>${costoTxt || '<span style="color:var(--texto-secundario);">—</span>'}${gan != null ? `<br><small style="color:var(--texto-secundario);">+${gan}%</small>` : ''}</td>
-          <td>${AdminData.formatARS(p.precioARSManual || SheetsService.calcularPrecioARS(p.precioUSD, p) || precioARS)}${p.precioOferta ? ` <span class="badge" style="background:#F59E0B;color:white;">Oferta: ${AdminData.formatARS(p.precioOferta)}</span>` : ''}${this.combosDelProducto(p.id).some(c => c.activo !== false) ? ' <span class="badge" style="background:#EC4899;color:white;">🎁 Combo</span>' : ''}</td>
+          <td>${AdminData.formatARS(p.precioARSManual || SheetsService.precioARS(p) || precioARS)}${p.precioOferta ? ` <span class="badge" style="background:#F59E0B;color:white;">Oferta: ${AdminData.formatARS(p.precioOferta)}</span>` : ''}${this.combosDelProducto(p.id).some(c => c.activo !== false) ? ' <span class="badge" style="background:#EC4899;color:white;">🎁 Combo</span>' : ''}</td>
           <td>
             ${hasVariants ? `
               <div style="display:flex; flex-direction:column; gap:2px;">
@@ -311,7 +292,6 @@ const AdminProducts = {
     document.getElementById('pf-solo-web').checked = false;
     document.getElementById('pf-stock').value = 0;
     document.getElementById('pf-stock-min').value = 5;
-    document.getElementById('pf-costo-moneda').value = 'USD';
     document.getElementById('pf-preciousd').value = '';
     document.getElementById('pf-ganancia').value = '';
     this.actualizarPrecioCalculado();
@@ -336,21 +316,20 @@ const AdminProducts = {
     document.getElementById('pf-categoria').value = p.categoria || '';
     document.getElementById('pf-subcategoria').value = p.subcategoria || '';
     document.getElementById('pf-sku').value = p.sku || '';
-    const moneda = p.costoMoneda === 'ARS' ? 'ARS' : 'USD';
-    document.getElementById('pf-costo-moneda').value = moneda;
-    document.getElementById('pf-preciousd').value = moneda === 'ARS'
-      ? this.formatInputARS(p.costoARS)
-      : (Number(p.precioUSD) > 0 ? String(p.precioUSD).replace('.', ',') : '');
+    // Costo siempre en pesos (los productos viejos con costo en USD se muestran ya pasados a pesos)
+    const costoARS = AdminData.costoUnitarioARS(p);
+    document.getElementById('pf-preciousd').value = this.formatInputARS(costoARS);
     // Ganancia: la nueva (%) o la vieja "margen personalizado"
     const m = Number(p.margenPersonalizado);
     const g = p.gananciaPct != null && p.gananciaPct !== '' ? Number(p.gananciaPct)
       : (m > 0 ? Math.round((m >= 1 ? m - 1 : m) * 100) : '');
     document.getElementById('pf-ganancia').value = g === '' ? '' : g;
-    // Con costo en pesos, el precio calculado se guarda como precio fijo:
-    // solo se muestra en "a mano" si es distinto del calculado
-    let manual = p.precioARSManual;
-    if (moneda === 'ARS' && manual && Number(p.costoARS) > 0) {
-      const calc = SheetsService.precioDesdeCosto({ moneda, costo: p.costoARS, gananciaPct: g === '' ? this.gananciaGlobalPct() : g });
+    // El precio calculado se guarda como precio fijo en pesos:
+    // solo se muestra en "a mano" si es distinto del calculado.
+    // Productos viejos sin precio en pesos: se muestra el que ve hoy la clienta.
+    let manual = p.precioARSManual || (costoARS > 0 ? null : SheetsService.precioARS(p)) || null;
+    if (manual && costoARS > 0) {
+      const calc = SheetsService.precioDesdeCosto({ costo: costoARS, gananciaPct: g === '' ? this.gananciaGlobalPct() : g });
       if (Math.round(manual) === calc) manual = null;
     }
     document.getElementById('pf-precio-ars-manual').value = this.formatInputARS(manual);
@@ -676,10 +655,9 @@ const AdminProducts = {
     const costoForm = this.leerCostoForm();
     if (costoForm.raw.trim() && !costoForm.costo) {
       irATab('precios'); document.getElementById('pf-preciousd').focus();
-      AdminApp.toast(costoForm.moneda === 'ARS' ? 'Revisá el costo: escribilo como 10000 o 10.000' : 'Revisá el costo en dólares: escribilo como 12,50', 'error');
+      AdminApp.toast('Revisá el costo: escribilo en pesos, como 10000 o 10.000', 'error');
       return;
     }
-    const precioUSD = costoForm.moneda === 'USD' ? (costoForm.costo || 0) : 0;
     const precioManual = this.parseARS(document.getElementById('pf-precio-ars-manual').value);
     const precioOfertaVal = this.parseARS(document.getElementById('pf-precio-oferta').value);
     for (const id of ['pf-precio-ars-manual', 'pf-precio-oferta']) {
@@ -707,14 +685,15 @@ const AdminProducts = {
       categoriaOriginal: catConfig ? catConfig.nombre : catId,
       subcategoria: document.getElementById('pf-subcategoria').value.trim(),
       sku: document.getElementById('pf-sku').value.trim(),
-      precioUSD,
-      costoMoneda: costoForm.moneda,
-      costoARS: costoForm.moneda === 'ARS' ? (costoForm.costo || 0) : 0,
-      // Costo en pesos: la ganancia queda fija en el producto (si no, cambiaría
-      // sola al tocar la general sin que cambie el precio guardado)
-      gananciaPct: costoForm.gananciaPct ?? (costoForm.moneda === 'ARS' ? this.gananciaGlobalPct() : null),
-      // Costo en pesos → el precio calculado se guarda como precio fijo
-      precioARSManual: precioManual || (costoForm.moneda === 'ARS' && costoForm.precio > 0 ? costoForm.precio : null),
+      // Todo en pesos (nov/2026): PrecioUSD queda en 0
+      precioUSD: 0,
+      costoMoneda: 'ARS',
+      costoARS: costoForm.costo || 0,
+      // La ganancia queda fija en el producto (si no, cambiaría sola al tocar
+      // la general sin que cambie el precio guardado)
+      gananciaPct: costoForm.gananciaPct ?? (costoForm.costo > 0 ? this.gananciaGlobalPct() : null),
+      // El precio calculado se guarda como precio fijo en pesos
+      precioARSManual: precioManual || (costoForm.precio > 0 ? costoForm.precio : null),
       precioOferta: precioOfertaVal,
       margenPersonalizado: null, // reemplazado por gananciaPct
       stock: variantes.length ? stockVariantes : (parseInt(document.getElementById('pf-stock').value) || 0),
@@ -908,7 +887,7 @@ const AdminProducts = {
     const nombre = document.getElementById('pf-combo-nombre').value.trim() || prods.map(p => p.nombre).join(' + ').slice(0, 80);
     const promos = JSON.parse(JSON.stringify(AdminData.getEffectivePromos() || {}));
     promos.combos = Array.isArray(promos.combos) ? promos.combos : [];
-    promos.combos.push({ id: 'combo_' + Date.now().toString(36), nombre, descripcion: '', productoIds: ids, precioARS: precio, precioUSD: 0, activo: true });
+    promos.combos.push({ id: 'combo_' + Date.now().toString(36), nombre, descripcion: '', productoIds: ids, precioARS: precio, activo: true });
     const publicado = this.guardarPromos(promos, 'el combo');
     AdminApp.toast(publicado ? '🎁 Combo guardado y publicado en la tienda' : '🎁 Combo guardado (se publica al conectar la planilla)');
     this.comboCerrar();
@@ -950,17 +929,17 @@ const AdminProducts = {
       return;
     }
 
-    const headers = ['ID', 'Nombre', 'Categoria', 'Subcategoria', 'SKU', 'Descripcion', 'DescripcionCorta', 'PrecioUSD', 'PrecioARSManual', 'PrecioOferta', 'MargenPersonalizado', 'GananciaPct', 'CostoMoneda', 'CostoARS', 'Stock', 'StockMin', 'Peso', 'Dimensiones', 'Imagen', 'Galeria', 'Variantes', 'Caracteristicas', 'Tags', 'Activo', 'Destacado', 'SoloWeb', 'SEOTitle', 'SEODesc'];
+    const headers = ['ID', 'Nombre', 'Categoria', 'Subcategoria', 'SKU', 'Descripcion', 'DescripcionCorta', 'PrecioARSManual', 'PrecioOferta', 'MargenPersonalizado', 'GananciaPct', 'CostoARS', 'Stock', 'StockMin', 'Peso', 'Dimensiones', 'Imagen', 'Galeria', 'Variantes', 'Caracteristicas', 'Tags', 'Activo', 'Destacado', 'SoloWeb', 'SEOTitle', 'SEODesc'];
     const rows = products.map(p => {
       const galeriaStr = (p.galeria || []).map(g => g.url).join(' | ');
       const variantesStr = (p.variantes || []).map(v => `${v.color || ''}${v.color ? `(${v.colorHex || ''})` : ''}/${v.talle || ''}:${Number(v.stock) || 0}`).join(' | ');
       const specsStr = Object.entries(p.caracteristicas || {}).map(([k, v]) => `${k}:${v}`).join(' | ');
       return [
         p.id, p.nombre, p.categoriaOriginal || p.categoria, p.subcategoria, p.sku,
-        p.descripcion, p.descripcionCorta, p.precioUSD,
-        p.precioARSManual || '', p.precioOferta || '',
+        p.descripcion, p.descripcionCorta,
+        p.precioARSManual || SheetsService.precioARS(p) || '', p.precioOferta || '',
         p.margenPersonalizado ? (p.margenPersonalizado * 100) : '',
-        p.gananciaPct ?? '', p.costoMoneda || 'USD', p.costoARS || '',
+        p.gananciaPct ?? '', AdminData.costoUnitarioARS(p) || '',
         p.stock, p.stockMin || 5, p.peso || '', p.dimensiones || '',
         p.imagen, galeriaStr, variantesStr, specsStr,
         (p.tags || []).join(', '),

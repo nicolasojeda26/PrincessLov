@@ -48,7 +48,9 @@ with sync_playwright() as p:
         cal = ad.evaluate("AdminData.getProducts().find(p=>p.nombre==='Calza Import QA')") or {}
         check("importar: costo en pesos + 30% → $10.500", rem.get("costoMoneda") == "ARS" and rem.get("costoARS") == 8000 and rem.get("precioARSManual") == 10500 and rem.get("gananciaPct") == 30,
               {k: rem.get(k) for k in ("costoMoneda", "costoARS", "precioARSManual", "gananciaPct")})
-        check("importar: costo USD", cal.get("precioUSD") == 10 and cal.get("stock") == 3, {k: cal.get(k) for k in ("precioUSD", "stock")})
+        # Planilla vieja con "Precio USD" (costo en dólares): se pasa a pesos con el dólar fijo (10 × 1570 = 15.700; +30% → 20.500)
+        check("importar: costo viejo en USD queda en pesos", not cal.get("precioUSD") and cal.get("costoARS") == 15700 and cal.get("precioARSManual") == 20500 and cal.get("stock") == 3,
+              {k: cal.get(k) for k in ("precioUSD", "costoARS", "precioARSManual", "stock")})
         check("importar: llega a la planilla", any(r["Nombre"] == "Remera Import QA" and r.get("CostoMoneda") == "ARS" for r in DB["Productos"]))
     else:
         check("importar (librería XLSX disponible)", False, "XLSX_JS no cargado")

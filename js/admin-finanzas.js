@@ -228,7 +228,7 @@ const AdminExpenses = {
           concepto: `<strong>${FinUI.esc(g.concepto)}</strong>${g.categoria ? `<br><small>${FinUI.esc(g.categoria)}</small>` : ''}${g.origen === 'recurrente' ? ' <span class="badge">🔁 fijo</span>' : ''}${g.origen === 'comision' ? ' <span class="badge">automático</span>' : ''}`,
           tipo: `${t.icon} ${t.label}`,
           prov: FinUI.esc(Fin.get('proveedores', g.proveedorId)?.nombre || ''),
-          monto: `<strong>${FinUI.ars(g.monto)}</strong>${g.moneda === 'USD' && g.montoUSD ? `<br><small>USD ${g.montoUSD} × ${FinUI.ars(g.cotizacion)}</small>` : ''}`,
+          monto: `<strong>${FinUI.ars(g.monto)}</strong>`,
           estado: FinUI.badgeEstado(est) + (est !== 'pagado' ? `<br><small>Falta ${FinUI.ars(resta)}</small>` : ''),
           acc: `<div class="table-actions">${est !== 'pagado' ? `<button class="btn btn-sm btn-primary" onclick="AdminExpenses.pagar('${escJsAttr(g.id)}')">Pagar</button>` : ''}
             <button class="btn btn-sm btn-secondary" onclick="AdminExpenses.openForm('${escJsAttr(g.id)}')" aria-label="Editar">✏️</button>
@@ -249,16 +249,15 @@ const AdminExpenses = {
     const editMonto = !g || Fin.pagosDeGasto(g.id).length === 0;
     FinUI.form({
       titulo: g ? 'Editar gasto' : 'Nuevo gasto',
-      valores: g ? { ...g, montoTxt: g.moneda === 'USD' ? g.montoUSD : g.monto, pago: 'pendiente', fechaComprobante: FinUI.fechaInput(g.fechaComprobante) } :
-        { tipo: 'administracion', mes: FinUI.mesActual(), moneda: 'ARS', iva: 0, pago: 'cuenta:' + (Fin.cuentaPorDefecto()?.id || ''), fechaPago: FinUI.hoyInput() },
+      valores: g ? { ...g, montoTxt: g.monto, pago: 'pendiente', fechaComprobante: FinUI.fechaInput(g.fechaComprobante) } :
+        { tipo: 'administracion', mes: FinUI.mesActual(), iva: 0, pago: 'cuenta:' + (Fin.cuentaPorDefecto()?.id || ''), fechaPago: FinUI.hoyInput() },
       campos: [
         { name: 'tipo', label: 'Tipo de gasto', type: 'pills', options: Fin.TIPOS_GASTO.map(t => ({ v: t.id, l: `${t.icon} ${t.label}`, t: t.ayuda })), hint: '' },
         { name: 'concepto', label: 'Descripción', required: true, placeholder: 'Ej: Alquiler del local, Publicidad Instagram, Monotributo' },
         { name: 'proveedorId', label: 'Proveedor (opcional)', type: 'select', options: [{ v: '', l: '— Sin proveedor —' }, ...provs.map(p => ({ v: p.id, l: p.nombre })), { v: '__nuevo', l: '➕ Proveedor nuevo…' }] },
         { name: 'proveedorNuevo', label: 'Nombre del proveedor nuevo', show: v => v.proveedorId === '__nuevo' },
         { name: 'categoria', label: 'Categoría (opcional)', placeholder: 'Ej: Servicios, Publicidad, Packaging' },
-        { name: 'moneda', label: 'Moneda', type: 'select', options: [{ v: 'ARS', l: 'Pesos' }, { v: 'USD', l: 'Dólares (se pasa a pesos)' }] },
-        { name: 'montoTxt', label: 'Gasto total', type: 'money', required: true, placeholder: 'Ej: 35.000', hint: editMonto ? 'Con impuestos incluidos' : 'Ya tiene pagos: para cambiar el monto, borrá los pagos o el gasto' },
+        { name: 'montoTxt', label: 'Gasto total ($)', type: 'money', required: true, placeholder: 'Ej: 35.000', hint: editMonto ? 'Con impuestos incluidos' : 'Ya tiene pagos: para cambiar el monto, borrá los pagos o el gasto' },
         { name: 'iva', label: 'IVA incluido', type: 'select', options: [{ v: 0, l: 'Sin IVA' }, { v: 21, l: '21 %' }, { v: 10.5, l: '10,5 %' }, { v: 27, l: '27 %' }] },
         { name: 'mes', label: 'Mes del gasto', type: 'select', options: meses.map(m => ({ v: m, l: Fin.nombreMes(m) })), hint: 'El mes del servicio, no el del pago' },
         { name: 'fechaComprobante', label: 'Fecha del comprobante (opcional)', type: 'date' },
@@ -271,8 +270,7 @@ const AdminExpenses = {
       ],
       alCambiar: (v) => {
         FinUI.hint('tipo', Fin.tipoGasto(v.tipo).ayuda);
-        if (v.moneda === 'USD' && v.montoTxt > 0) FinUI.hint('montoTxt', `USD ${v.montoTxt} × dólar ${FinUI.ars(AdminData.dolarActual())} = <strong>${FinUI.ars(Math.round(v.montoTxt * AdminData.dolarActual()))}</strong>`);
-        else if (editMonto) FinUI.hint('montoTxt', 'Con impuestos incluidos');
+        if (editMonto) FinUI.hint('montoTxt', 'Con impuestos incluidos');
         const el = document.getElementById('ff-montoTxt');
         if (el) el.disabled = !editMonto;
       },
@@ -283,14 +281,12 @@ const AdminExpenses = {
           if (!String(v.proveedorNuevo || '').trim()) return 'Escribí el nombre del proveedor nuevo';
           proveedorId = Fin.save('proveedores', { nombre: v.proveedorNuevo.trim(), tipoProveedor: 'gastos', telefono: '', email: '', cuit: '', notas: '' }).id;
         }
-        const usd = v.moneda === 'USD';
-        const dolar = AdminData.dolarActual();
         const datos = {
           tipo: v.tipo, concepto: v.concepto.trim(), proveedorId, categoria: v.categoria.trim(), iva: Number(v.iva) || 0,
           mes: v.mes, fechaComprobante: v.fechaComprobante ? FinUI.isoDeInput(v.fechaComprobante) : '', notas: v.notas.trim(),
         };
-        if (editMonto) Object.assign(datos, { moneda: usd ? 'USD' : 'ARS', montoUSD: usd ? v.montoTxt : 0, cotizacion: usd ? (g?.moneda === 'USD' && g.montoUSD === v.montoTxt ? g.cotizacion : dolar) : 0 });
-        if (editMonto) datos.monto = usd ? Math.round(v.montoTxt * datos.cotizacion) : v.montoTxt;
+        // Todo en pesos (los gastos viejos en dólares quedan con su monto en pesos)
+        if (editMonto) Object.assign(datos, { moneda: 'ARS', montoUSD: 0, cotizacion: 0, monto: v.montoTxt });
         if (g) {
           AdminData.updateExpense(g.id, { ...datos, pagadoExterno: g.pagadoExterno === true ? true : false });
           AdminApp.toast('Gasto actualizado');
@@ -301,7 +297,7 @@ const AdminExpenses = {
         if (v.repetir) {
           const r = Fin.recurrentes();
           r.plantillas.push({ id: Fin.nuevoId('rec'), concepto: datos.concepto, tipo: datos.tipo, categoria: datos.categoria, proveedorId, iva: datos.iva,
-            moneda: datos.moneda, monto: usd ? v.montoTxt : v.montoTxt, cuentaId: pago?.cuentaId || '', socioId: pago?.socioId || '', activa: true });
+            moneda: 'ARS', monto: v.montoTxt, cuentaId: pago?.cuentaId || '', socioId: pago?.socioId || '', activa: true });
           Fin.guardarRecurrentes(r);
           // El de este mes ya está cargado: se marca como generado
           const recien = Fin.gastos().filter(x => x.concepto === datos.concepto && x.mes === datos.mes).pop();
@@ -351,10 +347,9 @@ const AdminExpenses = {
     mes = mes || FinUI.mesActual();
     const filas = r.plantillas.map(p => {
       const gen = Fin.generadoDe(p.id, mes);
-      const usd = p.moneda === 'USD';
       return `<tr data-rec="${FinUI.esc(p.id)}">
         <td data-label="Gasto"><strong>${FinUI.esc(p.concepto)}</strong><br><small>${Fin.tipoGasto(p.tipo).icon} ${Fin.tipoGasto(p.tipo).label}${p.proveedorId ? ' · ' + FinUI.esc(Fin.get('proveedores', p.proveedorId)?.nombre || '') : ''}</small></td>
-        <td data-label="Monto">${gen ? FinUI.ars(gen.monto) : `<input type="text" inputmode="decimal" class="rec-monto" value="${String(p.monto).replace('.', ',')}" aria-label="Monto">${usd ? ' <small>USD</small>' : ''}`}</td>
+        <td data-label="Monto">${gen ? FinUI.ars(gen.monto) : `<input type="text" inputmode="decimal" class="rec-monto" value="${String(p.monto).replace('.', ',')}" aria-label="Monto">`}</td>
         <td data-label="Pagar">${gen ? FinUI.badgeEstado(Fin.estadoGasto(gen)) : `<select class="rec-pago" aria-label="Pago">${FinUI.opcionesPago({ textoPendiente: 'Pendiente' }).map(o => `<option value="${FinUI.esc(o.v)}" ${(p.cuentaId && o.v === 'cuenta:' + p.cuentaId) || (p.socioId && o.v === 'socio:' + p.socioId) ? 'selected' : ''}>${FinUI.esc(o.l)}</option>`).join('')}</select>`}</td>
         <td data-label="">${gen ? '✅ Aplicado' : `<label class="fin-check"><input type="checkbox" class="rec-on" checked> Generar</label>`}
           <button type="button" class="btn btn-sm btn-danger" onclick="AdminExpenses.borrarPlantilla('${escJsAttr(p.id)}')" aria-label="Quitar de los fijos">🗑️</button></td>
@@ -403,21 +398,20 @@ const AdminExpenses = {
     const provs = Fin.list('proveedores');
     FinUI.form({
       titulo: 'Nuevo gasto fijo',
-      valores: { tipo: 'administracion', moneda: 'ARS', pago: 'pendiente' },
+      valores: { tipo: 'administracion', pago: 'pendiente' },
       campos: [
         { name: 'tipo', label: 'Tipo de gasto', type: 'pills', options: Fin.TIPOS_GASTO.map(t => ({ v: t.id, l: `${t.icon} ${t.label}` })) },
         { name: 'concepto', label: 'Descripción', required: true, placeholder: 'Ej: Alquiler' },
         { name: 'proveedorId', label: 'Proveedor', type: 'select', options: [{ v: '', l: '— Sin proveedor —' }, ...provs.map(p => ({ v: p.id, l: p.nombre }))] },
         { name: 'categoria', label: 'Categoría' },
-        { name: 'moneda', label: 'Moneda', type: 'select', options: [{ v: 'ARS', l: 'Pesos' }, { v: 'USD', l: 'Dólares' }] },
-        { name: 'monto', label: 'Monto habitual', type: 'money', required: true },
+        { name: 'monto', label: 'Monto habitual ($)', type: 'money', required: true },
         { name: 'pago', label: 'Se paga habitualmente con', type: 'select', options: FinUI.opcionesPago({ textoPendiente: 'Lo elijo cada mes' }) },
       ],
       guardar: (v) => {
         if (!(v.monto > 0)) return 'Escribí el monto';
         const pago = FinUI.leerPago(v.pago) || {};
         const r = Fin.recurrentes();
-        r.plantillas.push({ id: Fin.nuevoId('rec'), concepto: v.concepto.trim(), tipo: v.tipo, categoria: v.categoria.trim(), proveedorId: v.proveedorId, iva: 0, moneda: v.moneda, monto: v.monto, cuentaId: pago.cuentaId || '', socioId: pago.socioId || '', activa: true });
+        r.plantillas.push({ id: Fin.nuevoId('rec'), concepto: v.concepto.trim(), tipo: v.tipo, categoria: v.categoria.trim(), proveedorId: v.proveedorId, iva: 0, moneda: 'ARS', monto: v.monto, cuentaId: pago.cuentaId || '', socioId: pago.socioId || '', activa: true });
         Fin.guardarRecurrentes(r);
         setTimeout(() => AdminExpenses.recurrentes(), 50);
       },

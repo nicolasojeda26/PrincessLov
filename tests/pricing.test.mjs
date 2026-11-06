@@ -22,6 +22,8 @@ const PRODUCTOS = [
   // Oct/2026: ganancia % propia, redondeo y costo en pesos
   { ID: 'p6', Nombre: 'Top Ganancia 50', Categoria: 'Tops', PrecioUSD: 10, GananciaPct: 50, Stock: 10, Activo: 'TRUE', Variantes: '[]' },
   { ID: 'p7', Nombre: 'Top Precio Impar', Categoria: 'Tops', PrecioUSD: 7.77, Stock: 10, Activo: 'TRUE', Variantes: '[]' },
+  // Nov/2026: todo en pesos (sin PrecioUSD)
+  { ID: 'p9', Nombre: 'Pijama Pesos', Categoria: 'Pijamas', PrecioARSManual: 16000, CostoARS: 11000, GananciaPct: 45, Stock: 10, Activo: 'TRUE', Variantes: '[]' },
   { ID: 'p8', Nombre: 'Remera Costo Pesos', Categoria: 'Remeras', PrecioUSD: 0, CostoMoneda: 'ARS', CostoARS: 10000, GananciaPct: 30, PrecioARSManual: 13000, Stock: 10, Activo: 'TRUE', Variantes: '[]' },
 ];
 
@@ -71,6 +73,8 @@ const puerto = server.address().port;
 
 process.env.APPS_SCRIPT_URL = `http://127.0.0.1:${puerto}/exec`;
 process.env.MARGEN_GANANCIA = '1.30';
+// Los productos p1–p7 tienen el costo viejo en USD: se pasan a pesos con este dólar fijo
+process.env.DOLAR_CONVERSION = '1000';
 
 const { cotizarCarrito, cotizacionAItemsMP } = await import('../api/_lib/pricing.js');
 
@@ -281,6 +285,35 @@ await test('combo: 2 de cada uno son 2 combos (no uno solo)', async () => {
 await test('combo: un producto extra se cobra aparte', async () => {
   const c = await cotizarCarrito({ items: [{ id: 'p6', cantidad: 2 }, { id: 'p8', cantidad: 1 }], shippingId: 'retiro' });
   assert.equal(c.total, 25000 + 15000);
+});
+
+/* ---------- Todo en pesos (nov/2026) ---------- */
+
+await test('pesos: el precio es el guardado en pesos y no depende del dólar', async () => {
+  const c = await cotizarCarrito({ items: [{ id: 'p9', cantidad: 2 }], shippingId: 'retiro' });
+  assert.equal(c.ok, true, c.errores?.join('; '));
+  assert.equal(c.lineas[0].precioUnitario, 16000);
+  assert.equal(c.total, 32000);
+  assert.equal(c.costoTotal, 22000);
+});
+
+const { precioUnitarioARS } = await import('../api/_lib/pricing.js');
+const promosVacias = { flashSales: [], preventas: [] };
+const pijama = { id: 'p9', categoria: 'pijamas', precioUSD: 0, precioARSManual: 16000, precioOferta: null };
+
+await test('pesos: flash sale descuenta del precio en pesos', async () => {
+  const promos = { ...promosVacias, flashSales: [{ id: 'f1', descuento: 25, categorias: [], activo: true }] };
+  assert.equal(precioUnitarioARS(pijama, promos, 1570, 1.3, Date.now(), 500), 12000);
+});
+
+await test('pesos: preventa con precio en pesos', async () => {
+  const futuro = new Date(Date.now() + 7 * 864e5).toISOString();
+  const promos = { ...promosVacias, preventas: [{ id: 'v1', productoId: 'p9', precioARS: 14000, fechaLanzamiento: futuro, activo: true }] };
+  assert.equal(precioUnitarioARS(pijama, promos, 1570, 1.3, Date.now(), 500), 14000);
+});
+
+await test('pesos: la oferta en pesos le gana si es menor', async () => {
+  assert.equal(precioUnitarioARS({ ...pijama, precioOferta: 13500 }, promosVacias, 1570, 1.3, Date.now(), 500), 13500);
 });
 
 /* ---------- Resultado ---------- */

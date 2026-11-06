@@ -48,10 +48,30 @@ const AdminPromos = {
     if ((reload && !this.dirty) || !this.data) {
       this.data = (typeof AdminData.getEffectivePromos === 'function')
         ? AdminData.getEffectivePromos() : (CONFIG.promos || {});
+      this.pasarAPesos(this.data);
     }
     root.innerHTML = this.layout();
     this.bind(root);
     this.pintarDirty();
+  },
+
+  /**
+   * Todo en pesos (nov/2026): combos y preventas viejos con precio en USD se muestran
+   * ya pasados a pesos (con el dólar fijo de conversión) y así se guardan.
+   */
+  pasarAPesos(data) {
+    if (!data || typeof SheetsService === 'undefined') return;
+    (data.combos || []).forEach(c => {
+      if (!(Number(c.precioARS) > 0) && Number(c.precioUSD) > 0) c.precioARS = SheetsService.calcularPrecioARS(c.precioUSD);
+      delete c.precioUSD;
+    });
+    (data.preventas || []).forEach(p => {
+      if (!(Number(p.precioARS) > 0) && Number(p.precioUSD) > 0) {
+        const prod = this.productos().find(x => String(x.id) === String(p.productoId));
+        p.precioARS = SheetsService.calcularPrecioARS(p.precioUSD, { ...(prod || {}), precioARSManual: null });
+      }
+      delete p.precioUSD;
+    });
   },
 
   /** Las promos NO se guardan solas: esta barra recuerda tocar "Guardar" */
@@ -181,7 +201,7 @@ const AdminPromos = {
             <input type="text" data-field="nombre" value="${this.esc(c.nombre)}" placeholder="Set Rosario">
           </label>
           <label class="promos-field">Precio del combo (ARS, vacío = 10% off)
-            <input type="number" step="1" min="0" data-field="precioARS" value="${Number(c.precioARS) > 0 ? c.precioARS : ''}" placeholder="${Number(c.precioUSD) > 0 ? 'Hoy: USD ' + c.precioUSD : 'Ej: 25000'}">
+            <input type="number" step="1" min="0" data-field="precioARS" value="${Number(c.precioARS) > 0 ? c.precioARS : ''}" placeholder="Ej: 25000">
           </label>
           <div class="promos-field"><span class="promos-label">Por separado</span><strong data-combo-suma="${i}">${this.sumaCombo(c)}</strong></div>
         </div>
@@ -225,7 +245,7 @@ const AdminPromos = {
     const lista = this.data.preventas || [];
     const prods = this.productos();
     const opts = prods.map(p => `<option value="${p.id}">${this.esc(p.nombre)}</option>`).join('');
-    if (!lista.length) return '<p class="promos-empty">Sin preventas. Elegí un producto, precio especial (USD) y fecha de lanzamiento.</p>';
+    if (!lista.length) return '<p class="promos-empty">Sin preventas. Elegí un producto, precio especial en pesos y fecha de lanzamiento.</p>';
     return lista.map((p, i) => `
       <div class="promos-row" data-kind="preventas" data-idx="${i}">
         <div class="promos-row__grid">
@@ -235,8 +255,8 @@ const AdminPromos = {
               ${opts.replace(`<option value="${p.productoId}">`, `<option value="${p.productoId}" selected>`)}
             </select>
           </label>
-          <label class="promos-field">Precio preventa (USD)
-            <input type="number" step="0.01" data-field="precioUSD" value="${p.precioUSD}">
+          <label class="promos-field">Precio preventa (ARS)
+            <input type="number" step="1" min="0" data-field="precioARS" value="${Number(p.precioARS) > 0 ? p.precioARS : ''}" placeholder="Ej: 15000">
           </label>
           <label class="promos-field">Fecha de lanzamiento
             <input type="datetime-local" data-field="fechaLanzamiento" value="${this.toLocalInput(p.fechaLanzamiento)}">
@@ -362,9 +382,9 @@ const AdminPromos = {
     };
     if (kind === 'cupones') Object.assign(newRec, { codigo: '', tipo: 'percent', valor: 10, usosMax: 1000, desc: '' });
     else if (kind === 'flashSales') Object.assign(newRec, { nombre: 'Flash Sale', descuento: 10, desde: null, hasta: null, categorias: [] });
-    else if (kind === 'combos') Object.assign(newRec, { nombre: 'Combo', descripcion: '', productoIds: [], precioARS: 0, precioUSD: 0 });
+    else if (kind === 'combos') Object.assign(newRec, { nombre: 'Combo', descripcion: '', productoIds: [], precioARS: 0 });
     else if (kind === 'dosPorUno') Object.assign(newRec, { nombre: '2x1', categorias: [] });
-    else if (kind === 'preventas') Object.assign(newRec, { productoId: '', precioUSD: 0, fechaLanzamiento: null });
+    else if (kind === 'preventas') Object.assign(newRec, { productoId: '', precioARS: 0, fechaLanzamiento: null });
     (this.data[kind] = this.data[kind] || []).push(newRec);
     this.render(false);
     this.afterChange();

@@ -17,10 +17,10 @@ const App = {
       const preview = this.esPreview();
       // Todo lo que viene de Google se pide a la vez (antes: config ×3 y
       // productos, y recién al final el dólar → ~8 s con la pantalla de carga).
+      // Desde nov/2026 los precios son solo en pesos: el dólar ya no se consulta.
       const frescos = Promise.all([
         SheetsService.configRemota().catch(() => null),
         SheetsService.cargarProductos(true),
-        CONFIG.cotizacion.autoCotizacion ? SheetsService.obtenerCotizacion() : null,
       ]);
 
       // Visita repetida: se muestra al instante lo guardado la vez anterior
@@ -40,7 +40,6 @@ const App = {
       const [config] = await frescos;
       await SheetsService.cargarConfigPublica({ preview, remote: config });
       SheetsService.reasignarCategorias();
-      await SheetsService.obtenerCotizacion();
       if (!preview) SheetsService.guardarCacheLocal(config);
       await this._arrancar();
     } catch (error) {
@@ -60,7 +59,6 @@ const App = {
       // Los textos del Club Prince se pintan apenas carga la página, antes de que
       // llegue lo publicado desde el admin: se repintan ahora con la versión final.
       if (typeof ClubPrince !== 'undefined') ClubPrince.renderBoxesFromConfig?.();
-      this.renderDolarTicker();
       this.renderSidebarFilters();
       this.renderCatBar();
       this.renderMegaMenu?.();
@@ -104,13 +102,13 @@ const App = {
         await SheetsService.aplicarCacheLocal(cache);
         return;
       }
-      const firma = (cfg, prods, dolar) => JSON.stringify([cfg, prods, dolar]);
-      const antes = firma(cache.config, cache.productos, cache.dolar);
+      const firma = (cfg, prods) => JSON.stringify([cfg, prods]);
+      const antes = firma(cache.config, cache.productos);
       const configFinal = config || cache.config;
       if (configFinal) await SheetsService.cargarConfigPublica({ remote: configFinal });
       SheetsService.reasignarCategorias();
       SheetsService.guardarCacheLocal(configFinal);
-      if (antes === firma(configFinal, SheetsService._ultimoRawProductos, SheetsService.cotizacionDolar || null)) return;
+      if (antes === firma(configFinal, SheetsService._ultimoRawProductos)) return;
       this._repintar();
     } catch (e) {
       console.warn('[App] actualización en segundo plano falló:', e.message);
@@ -120,7 +118,6 @@ const App = {
   _repintar() {
     this.renderContenidoCustom?.();
     if (typeof ClubPrince !== 'undefined') ClubPrince.renderBoxesFromConfig?.();
-    this.renderDolarTicker();
     this.renderSidebarFilters();
     this.renderCatBar();
     this.renderMegaMenu?.();
@@ -137,11 +134,6 @@ const App = {
     if (typeof PromoEngine !== 'undefined') PromoEngine.apply();
   },
 
-  /* ---------- DÓLAR TICKER ---------- */
-  renderDolarTicker() {
-    const el = document.getElementById('dolar-valor');
-    if (el && SheetsService.cotizacionDolar != null) el.textContent = '$' + SheetsService.cotizacionDolar.toLocaleString('es-AR');
-  },
 
   /* ---------- SIDEBAR DRAWER FILTERS ---------- */
   renderSidebarFilters() {
@@ -220,7 +212,7 @@ const App = {
     }
 
     // Ordenar por el precio que ve la clienta (respeta precio manual en pesos y ofertas)
-    const precio = (p) => (typeof PromoEngine !== 'undefined' && PromoEngine.precioVistaARS) ? PromoEngine.precioVistaARS(p) : SheetsService.calcularPrecioARS(p.precioUSD, p);
+    const precio = (p) => (typeof PromoEngine !== 'undefined' && PromoEngine.precioVistaARS) ? PromoEngine.precioVistaARS(p) : SheetsService.precioARS(p);
     const orden = new Map(SheetsService.productos.map((p, i) => [p.id, i]));
     switch (this.sortOrder) {
       case 'newest': productos.sort((a, b) => orden.get(b.id) - orden.get(a.id)); break; // lo último cargado primero
@@ -485,7 +477,7 @@ const App = {
     if (emptyEl) emptyEl.style.display = 'none';
 
     grid.innerHTML = visibles.map(p => {
-      const basePrecio = SheetsService.calcularPrecioARS(p.precioUSD, p);
+      const basePrecio = SheetsService.precioARS(p);
       const precioARS = (typeof PromoEngine !== 'undefined' && PromoEngine.precioVistaARS) ? PromoEngine.precioVistaARS(p) : basePrecio;
       const sinStock = p.stock <= 0;
 
@@ -611,7 +603,7 @@ const App = {
     // Price
     const priceRowEl = document.getElementById('product-modal-price-row');
     if (priceRowEl) {
-      const basePrecio = SheetsService.calcularPrecioARS(producto.precioUSD, producto);
+      const basePrecio = SheetsService.precioARS(producto);
       const precioARS = (typeof PromoEngine !== 'undefined' && PromoEngine.precioVistaARS) ? PromoEngine.precioVistaARS(producto) : basePrecio;
       let priceHtml = `<span class="product-modal__price">${SheetsService.formatPrecioARS(precioARS)}</span>`;
       if (precioARS < basePrecio) {
@@ -889,7 +881,7 @@ const App = {
       variantText = ' - ' + [selectedTalle && `Talle: ${selectedTalle}`, selectedColor && `Color: ${selectedColor}`].filter(Boolean).join(', ');
     }
 
-    const precioARS = (typeof PromoEngine !== 'undefined' && PromoEngine.precioVistaARS) ? PromoEngine.precioVistaARS(producto) : SheetsService.calcularPrecioARS(producto.precioUSD, producto);
+    const precioARS = (typeof PromoEngine !== 'undefined' && PromoEngine.precioVistaARS) ? PromoEngine.precioVistaARS(producto) : SheetsService.precioARS(producto);
     const texto = `¡Hola! Me interesa este producto:\n• ${producto.nombre}${variantText}\nPrecio: ${SheetsService.formatPrecioARS(precioARS)}\n\n¿Está disponible?`;
     CartService.abrirWhatsApp(texto);
     this.closeProductModal();
@@ -1186,7 +1178,7 @@ const App = {
     }
 
     grid.innerHTML = recommended.map(p => {
-      const precioARS = (typeof PromoEngine !== 'undefined' && PromoEngine.precioVistaARS) ? PromoEngine.precioVistaARS(p) : SheetsService.calcularPrecioARS(p.precioUSD, p);
+      const precioARS = (typeof PromoEngine !== 'undefined' && PromoEngine.precioVistaARS) ? PromoEngine.precioVistaARS(p) : SheetsService.precioARS(p);
       return `
         <button class="cart__cross-sell-item" onclick="App.quickAdd('${escJsAttr(p.id)}')" aria-label="Agregar ${escHtml(p.nombre)} - ${SheetsService.formatPrecioARS(precioARS)}">
           <img class="cart__cross-sell-img" src="${escHtml(SheetsService.fotoChica(p.imagen, 200))}" alt="" loading="lazy"
@@ -1293,7 +1285,7 @@ const App = {
         return;
       }
       resultsEl.innerHTML = results.slice(0, 8).map(p => {
-        const precioARS = (typeof PromoEngine !== 'undefined' && PromoEngine.precioVistaARS) ? PromoEngine.precioVistaARS(p) : SheetsService.calcularPrecioARS(p.precioUSD, p);
+        const precioARS = (typeof PromoEngine !== 'undefined' && PromoEngine.precioVistaARS) ? PromoEngine.precioVistaARS(p) : SheetsService.precioARS(p);
         return `
           <button class="search__result" onclick="App.toggleSearch(); App.openProductModal('${escJsAttr(p.id)}');" aria-label="${escHtml(p.nombre)} - ${SheetsService.formatPrecioARS(precioARS)}">
             <img class="search__result-img" src="${escHtml(SheetsService.fotoChica(p.imagen, 200))}" alt="" loading="lazy" onerror="this.onerror=null;this.src='data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2248%22 height=%2264%22><rect width=%2248%22 height=%2264%22 fill=%22%23eedbd8%22/></svg>'">

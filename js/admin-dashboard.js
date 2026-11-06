@@ -174,7 +174,7 @@ const AdminDashboard = {
   },
 
   renderBreakEven() {
-    const be = AdminData.calcularPuntoEquilibrio(AdminApp.dolarRate);
+    const be = AdminData.calcularPuntoEquilibrio();
     const container = document.getElementById('breakeven-content');
     if (!container) return;
 
@@ -274,7 +274,7 @@ const AdminDashboard = {
     const periodo = this.currentPeriod === 'all' ? null : this.currentPeriod;
     const stats = AdminData.getStats(periodo);
     const totalExpenses = AdminData.getTotalExpenses(periodo);
-    const be = AdminData.calcularPuntoEquilibrio(AdminApp.dolarRate);
+    const be = AdminData.calcularPuntoEquilibrio();
 
     const container = document.getElementById('financial-stats');
     if (container) {

@@ -19,7 +19,7 @@ def check(name, cond, extra=""):
 
 # ---------------- Apps Script simulado (mismas reglas que el .gs) ----------------
 DB = {"Productos": [], "Pedidos": [], "Gastos": [], "Config": {}, "ClubPrince_Leads": [], "Arrepentimiento": [], "Newsletter": []}
-PUBLIC_CFG = ['promos', 'clubPrince_boxes', 'contenido', 'categorias', 'envios', 'whatsapp', 'instagram', 'nombre', 'margen', 'dolarManual', 'redondeo']
+PUBLIC_CFG = ['promos', 'clubPrince_boxes', 'contenido', 'categorias', 'envios', 'whatsapp', 'instagram', 'nombre', 'margen', 'redondeo']
 SHEET = {"productos": "Productos", "pedidos": "Pedidos", "gastos": "Gastos", "clubprince": "ClubPrince_Leads", "arrepentimiento": "Arrepentimiento", "config": "Config"}
 
 def upsert(sheet, row):

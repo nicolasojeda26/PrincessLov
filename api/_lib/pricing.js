@@ -62,7 +62,8 @@ export function normalizePromos(cfg) {
     preventas: arr(cfg?.preventas).map((p) => ({
       id: String(p.id || 'prev'),
       productoId: String(p.productoId || ''),
-      precioUSD: num(p.precioUSD),
+      precioARS: Math.max(0, Math.round(num(p.precioARS))),
+      precioUSD: num(p.precioUSD), // solo preventas viejas en USD
       fechaLanzamiento: p.fechaLanzamiento || null,
       activo: p.activo !== false,
     })),
@@ -118,19 +119,19 @@ export function calcularPrecioARS(precioUSD, producto, dolar, margen, redondeo =
   return redondearPrecio(precioUSD * dolar * factorGanancia(producto, margen), redondeo);
 }
 
-/** Equivalente a PromoEngine.precioVistaARS / precioCompraARS */
+/** Equivalente a PromoEngine.precioVistaARS / precioCompraARS (todo en pesos) */
 export function precioUnitarioARS(producto, promos, dolar, margen, ahora = Date.now(), redondeo = 0) {
-  let usd = num(producto.precioUSD);
+  let base = calcularPrecioARS(num(producto.precioUSD), producto, dolar, margen, redondeo);
 
   const flash = flashDeProducto(producto, promos, ahora);
-  if (flash) usd = usd * (1 - flash.descuento / 100);
+  if (flash && base > 0) base = Math.round(base * (1 - flash.descuento / 100));
 
   const prev = preventaDeProducto(producto, promos, ahora);
-  if (prev && prev.precioUSD > 0) usd = prev.precioUSD;
-
-  let base = calcularPrecioARS(usd, producto, dolar, margen, redondeo);
-  // Igual que PromoEngine.precioVistaARS: con precio fijo en pesos, el flash descuenta de ese precio
-  if (flash && producto.precioARSManual > 0) base = Math.round(producto.precioARSManual * (1 - flash.descuento / 100));
+  if (prev) {
+    const precioPrev = prev.precioARS > 0 ? prev.precioARS
+      : (prev.precioUSD > 0 ? calcularPrecioARS(prev.precioUSD, { ...producto, precioARSManual: null }, dolar, margen, redondeo) : 0);
+    if (precioPrev > 0) base = precioPrev;
+  }
 
   if (producto.precioOferta > 0 && producto.precioOferta < base) {
     return Math.round(producto.precioOferta);
@@ -180,7 +181,7 @@ function descuentoCombos(lineas, promos, dolar, margen, redondeo = 0) {
       const unidad = (id) => Math.max(0, ...lineas.filter((l) => String(l.id) === id).map((l) => l.precioUnitario));
       const sumaSet = ids.reduce((s, id) => s + unidad(id), 0);
 
-      // Precio fijo en pesos (oct/2026) o, en combos viejos, USD x dolar x margen
+      // Precio fijo en pesos (combos viejos en USD: se pasan con el dolar de conversion)
       const precioCombo = c.precioARS > 0 ? c.precioARS
         : (c.precioUSD > 0 ? calcularPrecioARS(c.precioUSD, null, dolar, margen, redondeo) : 0);
       if (precioCombo > 0) {
@@ -282,7 +283,7 @@ export async function cotizarCarrito({ items, shippingId, promoCode }) {
       precioUnitario,
       subtotal: precioUnitario * cantidad,
       precioUSD: producto.precioUSD,
-      costoUnitarioARS: producto.costoMoneda === 'ARS' && producto.costoARS > 0 ? producto.costoARS : null,
+      costoUnitarioARS: producto.costoARS > 0 ? producto.costoARS : null,
     });
   }
 
