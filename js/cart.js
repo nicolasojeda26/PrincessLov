@@ -333,10 +333,30 @@ const CartService = {
     if (this.promoCode && typeof PromoEngine !== 'undefined' && PromoEngine.validarCupon && !PromoEngine.validarCupon(this.promoCode)) return 0;
     const type = promo.type || promo.tipo;
     const value = Number(promo.value != null ? promo.value : promo.valor) || 0;
-    const lineas = this.getLineasSubtotalARS();
-    if (type === 'percent') return Math.round(lineas * Math.min(value, 100) / 100);
-    if (type === 'fijo') return Math.min(Math.round(value), lineas);
+    const lineas = this.getLineasCuponARS();
+    // Igual que el servidor: nunca más de lo que queda de productos después del 2x1/combos
+    const tope = Math.max(0, this.getLineasSubtotalARS() - this.calcAutoDiscount());
+    if (type === 'percent') return Math.min(Math.round(lineas * Math.min(value, 100) / 100), tope);
+    if (type === 'fijo') return Math.min(Math.round(value), lineas, tope);
     return 0;
+  },
+
+  /** Cupón vigente según el admin (trae las categorías); si no hay motor, lo guardado */
+  getCuponVigente() {
+    if (!this.promoCode) return null;
+    if (typeof PromoEngine !== 'undefined' && PromoEngine.validarCupon) return PromoEngine.validarCupon(this.promoCode);
+    return this.promoData;
+  },
+
+  /** Subtotal de los productos que entran en el cupón (todo el carrito si no tiene categorías) */
+  getLineasCuponARS() {
+    const total = this.getLineasSubtotalARS();
+    const cupon = this.getCuponVigente();
+    if (!cupon || !(cupon.categorias || []).length || typeof PromoEngine === 'undefined' || !PromoEngine.cuponAplicaA) return total;
+    return this.items.reduce((sum, i) => {
+      const prod = SheetsService.obtenerProducto(i.id) || { categoria: i.categoria };
+      return PromoEngine.cuponAplicaA(cupon, prod) ? sum + (i.precioARS * i.cantidad) : sum;
+    }, 0);
   },
 
   /** Umbral de envío gratis (editable desde Admin > Promociones) */
@@ -356,7 +376,8 @@ const CartService = {
   hasFreeShipping() {
     const type = this.promoData ? (this.promoData.type || this.promoData.tipo) : null;
     if (type === 'shipping' && this.getCouponDiscount() === 0 && this.promoCode &&
-        (typeof PromoEngine === 'undefined' || !PromoEngine.validarCupon || PromoEngine.validarCupon(this.promoCode))) return true;
+        (typeof PromoEngine === 'undefined' || !PromoEngine.validarCupon || PromoEngine.validarCupon(this.promoCode)) &&
+        this.getLineasCuponARS() > 0) return true;
     const umbral = this.getFreeShippingThreshold();
     if (umbral <= 0) return false;
     const base = this.getLineasSubtotalARS() - this.calcAutoDiscount() - this.getCouponDiscount();
