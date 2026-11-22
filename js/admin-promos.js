@@ -142,8 +142,14 @@ const AdminPromos = {
             <input type="number" step="0.01" min="0" ${c.tipo === 'fijo' ? '' : 'max="100"'} data-field="valor" value="${c.valor}" placeholder="10">
           </label>
           <label class="promos-field">Usos máx.
-            <input type="number" min="0" step="1" data-field="usosMax" value="${c.usosMax}" placeholder="1000">
+            <input type="number" min="0" step="1" data-field="usosMax" value="${c.usosMax ?? ''}" placeholder="Sin límite">
           </label>
+        </div>
+        <div class="promos-row__grid">
+          <div class="promos-field promos-field--grow">
+            <span class="promos-label">Solo en estas categorías (vacío = toda la tienda)</span>
+            ${this.chips('cupones', i, 'categorias', c.categorias || [], true)}
+          </div>
         </div>
         <div class="promos-row__grid">
           <label class="promos-field promos-field--grow">Descripción
@@ -315,9 +321,11 @@ const AdminPromos = {
       if (!rec) return;
       let val = el.value;
       if (el.type === 'checkbox') val = el.checked;
+      // "Usos máx." vacío = sin límite (antes quedaba en 0 y el cupón no andaba)
+      else if (kind === 'cupones' && field === 'usosMax' && String(val).trim() === '') val = null;
       else if (el.type === 'number') val = Number(val);
       if (field === 'desde' || field === 'hasta' || field === 'fechaLanzamiento') val = this.fromLocalInput(el.value);
-      if (kind === 'cupones' && (field === 'valor' || field === 'usosMax')) {
+      if (kind === 'cupones' && (field === 'valor' || field === 'usosMax') && val !== null) {
         // Un valor negativo encarecería la compra; un % mayor a 100 la regalaría
         const max = field === 'valor' && rec.tipo !== 'fijo' ? 100 : Infinity;
         const ok = Math.min(max, Math.max(0, Number.isFinite(val) ? val : 0));
@@ -380,7 +388,7 @@ const AdminPromos = {
       id: 'x' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       activo: true,
     };
-    if (kind === 'cupones') Object.assign(newRec, { codigo: '', tipo: 'percent', valor: 10, usosMax: 1000, desc: '' });
+    if (kind === 'cupones') Object.assign(newRec, { codigo: '', tipo: 'percent', valor: 10, usosMax: null, desc: '', categorias: [] });
     else if (kind === 'flashSales') Object.assign(newRec, { nombre: 'Flash Sale', descuento: 10, desde: null, hasta: null, categorias: [] });
     else if (kind === 'combos') Object.assign(newRec, { nombre: 'Combo', descripcion: '', productoIds: [], precioARS: 0 });
     else if (kind === 'dosPorUno') Object.assign(newRec, { nombre: '2x1', categorias: [] });
@@ -409,6 +417,8 @@ const AdminPromos = {
     if (cupones.some(c => !c.codigo)) { AdminApp.toast?.('Hay un cupón sin código: escribilo o borralo con 🗑', 'error'); return; }
     const repetido = cupones.find((c, i) => cupones.findIndex(x => x.codigo === c.codigo) !== i);
     if (repetido) { AdminApp.toast?.(`El código ${repetido.codigo} está repetido`, 'error'); return; }
+    const sinUsos = cupones.find(c => c.activo !== false && c.usosMax !== null && c.usosMax !== undefined && c.usosMax !== '' && Number(c.usosMax) <= 0);
+    if (sinUsos) { AdminApp.toast?.(`El código ${sinUsos.codigo} tiene 0 usos: en la tienda no va a funcionar. Dejá "Usos máx." vacío para que no tenga límite.`, 'error'); return; }
     const comboIncompleto = (this.data.combos || []).find(c => c.activo !== false && new Set((c.productoIds || []).map(String)).size < 2);
     if (comboIncompleto) { AdminApp.toast?.(`El combo "${comboIncompleto.nombre || 'Combo'}" necesita al menos 2 productos`, 'error'); return; }
     this.dirty = false;

@@ -32,9 +32,10 @@ export function normalizePromos(cfg) {
       codigo: String(c.codigo || '').toUpperCase().trim(),
       tipo: ['percent', 'fijo', 'shipping'].includes(c.tipo) ? c.tipo : 'percent',
       valor: valorCupon(c),
-      usosMax: c.usosMax == null ? 1000 : num(c.usosMax),
+      usosMax: (c.usosMax == null || c.usosMax === '' || !Number.isFinite(Number(c.usosMax))) ? 1000 : num(c.usosMax),
       activo: c.activo !== false,
       desc: c.desc || '',
+      categorias: arr(c.categorias).map(String),
     })),
     flashSales: arr(cfg?.flashSales).map((f) => ({
       id: String(f.id || 'flash'),
@@ -199,6 +200,35 @@ export function validarCupon(codigo, promos) {
   return promos.cupones.find((c) => c.activo && c.codigo === cod) || null;
 }
 
+const slugCat = (v) => String(v ?? '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+
+/**
+ * Id de categoria de un producto, igual que js/sheets.js resolverCategoria:
+ * la planilla guarda el nombre ("SexShop 🫦"), el cupon guarda el id ("sex-shop").
+ */
+export function resolverCategoria(valor, categorias) {
+  const key = slugCat(valor);
+  if (!key) return '';
+  const cats = Array.isArray(categorias) ? categorias : [];
+  const porNombre = cats.find((c) => slugCat(c.nombre) === key);
+  if (porNombre) return porNombre.id;
+  const porId = cats.find((c) => c.id === valor || slugCat(c.id) === key);
+  if (porId) return porId.id;
+  const porAlias = cats.find((c) => Array.isArray(c.alias) && c.alias.some((a) => slugCat(a) === key));
+  return porAlias ? porAlias.id : key;
+}
+
+/** Subtotal de las lineas que entran en el cupon (todas si no tiene categorias) */
+export function baseCupon(lineas, cupon, categorias) {
+  const cats = (cupon && cupon.categorias) || [];
+  return lineas.reduce((s, l) => {
+    if (!cats.length) return s + l.subtotal;
+    const id = resolverCategoria(l.categoriaOriginal ?? l.categoria, categorias);
+    return cats.includes(id) || cats.includes(l.categoria) ? s + l.subtotal : s;
+  }, 0);
+}
+
 /* ================= Cotizacion del carrito ================= */
 
 /**
@@ -276,6 +306,7 @@ export async function cotizarCarrito({ items, shippingId, promoCode }) {
       id: producto.id,
       nombre: producto.nombre,
       categoria: producto.categoria,
+      categoriaOriginal: producto.categoriaOriginal,
       imagen: producto.imagen,
       variante: variante ? `${variante.color} / ${variante.talle}` : null,
       _variant: variante,
@@ -318,14 +349,20 @@ export async function cotizarCarrito({ items, shippingId, promoCode }) {
     if (usados != null && usados >= cupon.usosMax) {
       return { ok: false, errores: ['El codigo de descuento ya alcanzo su limite de usos'] };
     }
-    cuponAplicado = { codigo: cupon.codigo, tipo: cupon.tipo, valor: cupon.valor };
+    const base = baseCupon(lineas, cupon, storeConfig.categorias);
+    if (cupon.categorias.length && base <= 0) {
+      return { ok: false, errores: ['El codigo de descuento no aplica a los productos del carrito'] };
+    }
+    cuponAplicado = { codigo: cupon.codigo, tipo: cupon.tipo, valor: cupon.valor, categorias: cupon.categorias };
     if (cupon.tipo === 'percent') {
-      descuentoCupon = Math.round((subtotalLineas * cupon.valor) / 100);
+      descuentoCupon = Math.round((base * cupon.valor) / 100);
     } else if (cupon.tipo === 'fijo') {
-      descuentoCupon = Math.min(Math.round(cupon.valor), subtotalLineas);
+      descuentoCupon = Math.min(Math.round(cupon.valor), base);
     } else if (cupon.tipo === 'shipping') {
       costoEnvio = 0;
     }
+    // Con el 2x1/combos el cupon no puede descontar mas de lo que queda de productos (no come el envio)
+    descuentoCupon = Math.min(descuentoCupon, Math.max(0, subtotalLineas - totalAuto));
   }
 
   /* --- Envio gratis por umbral --- */

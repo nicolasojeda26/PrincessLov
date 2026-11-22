@@ -51,9 +51,12 @@ const PromoEngine = {
         tipo: ['percent', 'fijo', 'shipping'].includes(c.tipo) ? c.tipo : 'percent',
         // Igual que el servidor: nunca negativo y como mucho 100%
         valor: c.tipo === 'fijo' ? Math.max(0, Number(c.valor) || 0) : Math.min(100, Math.max(0, Number(c.valor) || 0)),
-        usosMax: c.usosMax == null ? 1000 : Number(c.usosMax),
+        // Vacío = sin límite práctico (antes un campo vacío quedaba en 0 y el cupón decía "expirado")
+        usosMax: (c.usosMax == null || c.usosMax === '' || !Number.isFinite(Number(c.usosMax))) ? 1000 : Number(c.usosMax),
         activo: c.activo !== false,
         desc: c.desc || '',
+        // Vacío = vale para todo el carrito; con categorías, solo descuenta esos productos
+        categorias: arr(c.categorias).map(String),
       })),
       flashSales: arr(cfg?.flashSales).map(f => ({
         id: String(f.id || 'flash_' + Date.now().toString(36)),
@@ -107,7 +110,27 @@ const PromoEngine = {
         AdminPromos.render();
       }
     });
+    this._ultimoRefresco = Date.now();
     this.fetchRemote();
+    // Al volver a la pestaña después de un rato, traer los cupones nuevos
+    if (typeof document !== 'undefined' && document.addEventListener) {
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && Date.now() - (this._ultimoRefresco || 0) > 60000) {
+          this.refrescarRemoto().catch(() => {});
+        }
+      });
+    }
+  },
+
+  /**
+   * Vuelve a pedir las promos publicadas (sin la copia de cuando se abrió la página).
+   * En el celu una pestaña puede quedar abierta días: sin esto, un cupón creado o
+   * renombrado después decía "inválido o expirado" hasta recargar.
+   */
+  async refrescarRemoto() {
+    if (typeof SheetsService !== 'undefined') SheetsService._configPromise = null;
+    this._ultimoRefresco = Date.now();
+    await this.fetchRemote();
   },
 
   /** 1) Remoto (Apps Script, clave `promos`) — no bloquea */
@@ -302,7 +325,36 @@ const PromoEngine = {
     if (!cod) return null;
     const cpn = this.config.cupones.find(x => x.activo && x.usosMax > 0 && String(x.codigo).toUpperCase() === cod);
     if (!cpn) return null;
-    return { id: cpn.id, tipo: cpn.tipo, valor: cpn.valor, usosMax: cpn.usosMax, desc: cpn.desc || cpn.codigo };
+    return { id: cpn.id, tipo: cpn.tipo, valor: cpn.valor, usosMax: cpn.usosMax, desc: cpn.desc || cpn.codigo, categorias: cpn.categorias || [] };
+  },
+
+  /** Por qué no anda un código (para no decir "expirado" a todo) */
+  motivoCuponInvalido(code) {
+    if (!this.config) this.apply();
+    const cod = String(code || '').trim().toUpperCase();
+    const cpn = this.config.cupones.find(x => String(x.codigo).toUpperCase() === cod);
+    if (!cpn) return 'Ese código no existe';
+    if (!cpn.activo) return 'Ese código no está activo';
+    if (!(cpn.usosMax > 0)) return 'Este código ya no tiene usos disponibles';
+    return 'Código inválido';
+  },
+
+  /** ¿El cupón descuenta este producto? (sin categorías = todos) */
+  cuponAplicaA(cupon, producto) {
+    const cats = (cupon && cupon.categorias) || [];
+    if (!cats.length) return true;
+    if (!producto) return false;
+    const cat = producto.categoria || String(producto.categoriaOriginal || '').toLowerCase().replace(/\s+/g, '-');
+    return cats.includes(cat);
+  },
+
+  /** "Pijamas y SexShop" a partir de los ids de categoría del cupón */
+  nombresCategorias(ids) {
+    const cats = (typeof SheetsService !== 'undefined' && SheetsService.obtenerTodasCategorias)
+      ? (SheetsService.obtenerTodasCategorias() || []) : ((typeof CONFIG !== 'undefined' && CONFIG.categorias) || []);
+    const nombres = (ids || []).map(id => (cats.find(c => c.id === id) || {}).nombre || id);
+    if (nombres.length <= 1) return nombres.join('');
+    return nombres.slice(0, -1).join(', ') + ' y ' + nombres[nombres.length - 1];
   },
 
   /* ---------- CUENTA REGRESIVA ---------- */

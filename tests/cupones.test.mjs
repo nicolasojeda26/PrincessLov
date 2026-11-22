@@ -20,6 +20,14 @@ const PRODUCTOS = [
   { ID: 'p1', Nombre: 'Calza Larga Negra', Categoria: 'Calzas Largas', PrecioUSD: 20, Stock: 50, Activo: 'TRUE', Variantes: '[]' },
   { ID: 'p6', Nombre: 'Pijama Estrellas', Categoria: 'Pijamas', PrecioUSD: 10, Stock: 20, Activo: 'TRUE', Variantes: '[]' },
   { ID: 'p7', Nombre: 'Top Impar', Categoria: 'Tops', PrecioUSD: 7.69, Stock: 20, Activo: 'TRUE', Variantes: '[]' },
+  { ID: 'p8', Nombre: 'Aceite Masajes', Categoria: 'SexShop 🫦', PrecioUSD: 5, Stock: 20, Activo: 'TRUE', Variantes: '[]' },
+];
+
+// Como en la planilla real: el producto guarda el nombre, el cupon guarda el id
+const CATEGORIAS = [
+  { id: 'pijamas', nombre: 'Pijamas' },
+  { id: 'sex-shop', nombre: 'SexShop 🫦', alias: ['Sex Shop 🫦'] },
+  { id: 'calzas-largas', nombre: 'Calzas largas' },
 ];
 
 const ENVIOS = [
@@ -41,6 +49,10 @@ const PROMOS = {
     { id: 'c9', codigo: 'INFLUAGOTADO', tipo: 'percent', valor: 15, usosMax: 3, activo: true, desc: 'Ya usado 3 veces' },
     { id: 'c10', codigo: 'INFLUQUEDAN', tipo: 'percent', valor: 15, usosMax: 3, activo: true, desc: 'Usado 2 veces' },
     { id: 'c11', codigo: 'PASADO', tipo: 'percent', valor: 150, activo: true, desc: 'Mas de 100%' },
+    { id: 'c12', codigo: 'PIJASEX', tipo: 'percent', valor: 20, activo: true, desc: '20% en pijamas y sex shop', categorias: ['pijamas', 'sex-shop'] },
+    { id: 'c13', codigo: 'PIJAFIJO', tipo: 'fijo', valor: 999999, activo: true, desc: 'Fijo solo pijamas', categorias: ['pijamas'] },
+    { id: 'c14', codigo: 'SINLIMITE', tipo: 'percent', valor: 10, usosMax: '', activo: true, desc: 'Usos vacio en el admin' },
+    { id: 'c15', codigo: 'USOSNULL', tipo: 'percent', valor: 10, usosMax: null, activo: true, desc: 'Usos null' },
   ],
   flashSales: [],
   combos: [],
@@ -75,7 +87,7 @@ const server = http.createServer((req, res) => {
   if (action === 'read') return res.end(JSON.stringify(PRODUCTOS));
   if (action === 'dolar') return res.end(JSON.stringify([{ Fecha: '2026-10-05', Valor: DOLAR }]));
   if (action === 'config') {
-    return res.end(JSON.stringify({ promos: JSON.stringify(PROMOS), envios: JSON.stringify(ENVIOS) }));
+    return res.end(JSON.stringify({ promos: JSON.stringify(PROMOS), envios: JSON.stringify(ENVIOS), categorias: JSON.stringify(CATEGORIAS) }));
   }
   res.end(JSON.stringify({}));
 });
@@ -93,7 +105,7 @@ const { cotizarCarrito, cotizacionAItemsMP } = await import('../api/_lib/pricing
 function nuevoCarrito() {
   const storage = new Map();
   const productos = PRODUCTOS.map((p) => ({
-    id: p.ID, nombre: p.Nombre, categoria: p.Categoria.toLowerCase().replace(/\s+/g, '-'), precioUSD: p.PrecioUSD, stock: p.Stock, variantes: [],
+    id: p.ID, nombre: p.Nombre, categoria: (CATEGORIAS.find((c) => c.nombre === p.Categoria) || {}).id || p.Categoria.toLowerCase().replace(/\s+/g, '-'), precioUSD: p.PrecioUSD, stock: p.Stock, variantes: [],
   }));
   const ctx = {
     console,
@@ -134,6 +146,8 @@ function nuevoCarrito() {
     /** Replica App.applyPromo: valida con PromoEngine y aplica */
     cupon: (code) => {
       const promo = ctx.PromoEngine.validarCupon(code);
+      // Igual que App.applyPromo: un cupon por categoria necesita algun producto de esas
+      if (promo && promo.categorias.length && !cart.items.some((i) => ctx.PromoEngine.cuponAplicaA(promo, prod(i.id)))) return null;
       if (promo) cart.applyPromo(code.trim().toUpperCase(), promo);
       return promo;
     },
@@ -287,6 +301,31 @@ await test('prorrateo con cupon: ultima linea con cantidad 3 cuadra al centavo',
   assert.equal(sumaMP(c), c.total);
 });
 
+await test('usos max vacio o null en el admin: el cupon funciona (no "expirado")', async () => {
+  for (const code of ['SINLIMITE', 'USOSNULL']) {
+    const c = await cotizarCarrito({ items: [{ id: 'p1', cantidad: 1 }], shippingId: 'retiro', promoCode: code });
+    assert.equal(c.ok, true, code + ': ' + c.errores?.join('; '));
+    assert.equal(c.descuentoCupon, Math.round(ars(20) * 0.1));
+  }
+});
+
+await test('cupon por categorias: solo descuenta pijamas y sex shop', async () => {
+  const c = await cotizarCarrito({ items: [{ id: 'p1', cantidad: 1 }, { id: 'p6', cantidad: 1 }, { id: 'p8', cantidad: 1 }], shippingId: 'retiro', promoCode: 'PIJASEX' });
+  assert.equal(c.ok, true, c.errores?.join('; '));
+  assert.equal(c.descuentoCupon, Math.round((ars(10) + ars(5)) * 0.2));
+});
+
+await test('cupon por categorias sin productos de esas categorias se rechaza', async () => {
+  const c = await cotizarCarrito({ items: [{ id: 'p1', cantidad: 2 }], shippingId: 'retiro', promoCode: 'PIJASEX' });
+  assert.equal(c.ok, false);
+  assert.match(c.errores[0], /no aplica/);
+});
+
+await test('cupon fijo por categoria: no descuenta mas que esos productos', async () => {
+  const c = await cotizarCarrito({ items: [{ id: 'p1', cantidad: 1 }, { id: 'p7', cantidad: 1 }, { id: 'p6', cantidad: 1 }], shippingId: 'retiro', promoCode: 'PIJAFIJO' });
+  assert.equal(c.descuentoCupon, ars(10));
+});
+
 /* ================= Endpoint de pago ================= */
 
 console.log('\nQA cupones - endpoint de Mercado Pago\n');
@@ -423,18 +462,44 @@ await test('cupon que baja del umbral: el carrito tambien cobra el envio', async
   assert.equal(t.cart.getTotalARS(), c.total);
 });
 
+await test('carrito: cupon PIJASEX descuenta solo pijamas y sex shop, igual que el servidor', async () => {
+  const t = nuevoCarrito();
+  t.agregar('p1', 1); t.agregar('p6', 1); t.agregar('p8', 2);
+  t.envio('retiro');
+  assert.ok(t.cupon('PIJASEX'));
+  const c = await t.alServidor();
+  assert.equal(c.ok, true, c.errores?.join('; '));
+  assert.equal(t.cart.getCouponDiscount(), c.descuentoCupon);
+  assert.equal(t.cart.getTotalARS(), c.total);
+});
+
+await test('carrito: cupon con usos vacio se acepta', async () => {
+  const t = nuevoCarrito();
+  t.agregar('p1', 1);
+  assert.ok(t.cupon('SINLIMITE'), 'SINLIMITE rechazado en el navegador');
+});
+
+await test('carrito: sacar los pijamas deja el cupon por categoria en $0', async () => {
+  const t = nuevoCarrito();
+  t.agregar('p1', 1); t.agregar('p6', 1);
+  t.cupon('PIJASEX');
+  t.cart.removeItem ? t.cart.removeItem(t.cart.items.find((i) => i.id === 'p6').key || 'p6') : null;
+  if (t.cart.items.some((i) => i.id === 'p6')) t.cart.items = t.cart.items.filter((i) => i.id !== 'p6');
+  assert.equal(t.cart.getCouponDiscount(), 0);
+});
+
 await test('300 carritos al azar: carrito = servidor = Mercado Pago', async () => {
   let semilla = 42;
   const azar = (n) => { semilla = (semilla * 1103515245 + 12345) % 2147483648; return semilla % n; };
-  const codigos = [null, 'PRINCESS20', 'ENVIOGRATIS', 'FIJO5000', 'FIJOGRANDE', 'INFLU10', 'INFLU100', 'NEGATIVO', 'PASADO'];
+  const codigos = [null, 'PRINCESS20', 'ENVIOGRATIS', 'FIJO5000', 'FIJOGRANDE', 'INFLU10', 'INFLU100', 'NEGATIVO', 'PASADO', 'PIJAFIJO', 'SINLIMITE'];
   for (let k = 0; k < 300; k++) {
     const t = nuevoCarrito();
-    ['p1', 'p6', 'p7'].forEach((id) => { const n = azar(4); if (n) t.agregar(id, n); });
+    ['p1', 'p6', 'p7', 'p8'].forEach((id) => { const n = azar(4); if (n) t.agregar(id, n); });
     if (!t.cart.items.length) t.agregar('p7', 1);
     t.envio(azar(2) ? 'retiro' : 'correo_argentino');
     const codigo = codigos[azar(codigos.length)];
-    if (codigo) t.cupon(codigo);
     if (azar(3) === 0) t.agregar('p6', 1 + azar(3)); // cambiar el carrito despues del cupon
+    if (codigo) t.cupon(codigo);
     const c = await t.alServidor();
     const caso = `#${k} ${t.cart.items.map((i) => i.id + 'x' + i.cantidad).join(',')} ${codigo} ${t.cart.shippingId}`;
     assert.equal(c.ok, true, `${caso}: ${c.errores?.join('; ')}`);

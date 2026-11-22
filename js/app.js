@@ -1087,7 +1087,14 @@ const App = {
     if (!code) return;
 
     // Cupones del Motor de Promociones (gestionables desde el admin)
-    const promo = (typeof PromoEngine !== 'undefined' && PromoEngine.validarCupon) ? PromoEngine.validarCupon(code) : null;
+    let promo = (typeof PromoEngine !== 'undefined' && PromoEngine.validarCupon) ? PromoEngine.validarCupon(code) : null;
+    // Puede ser un cupón creado después de abrir la página: preguntar de nuevo a la planilla
+    if (!promo && typeof PromoEngine !== 'undefined' && PromoEngine.refrescarRemoto) {
+      messageEl.textContent = 'Verificando código…';
+      messageEl.className = 'cart__promo-message';
+      try { await PromoEngine.refrescarRemoto(); } catch { /* sin conexión: queda lo que había */ }
+      promo = PromoEngine.validarCupon(code);
+    }
 
     // "Usos máx.": cuenta los pedidos que ya confirmaste con este código
     if (promo && await this.cuponAgotado(code, promo)) {
@@ -1096,14 +1103,27 @@ const App = {
       return;
     }
 
+    // Cupón solo para algunas categorías: tiene que haber al menos un producto de esas
+    const cats = (promo && promo.categorias) || [];
+    if (promo && cats.length && PromoEngine.cuponAplicaA) {
+      const alguno = CartService.items.some(i => PromoEngine.cuponAplicaA(promo, SheetsService.obtenerProducto(i.id) || { categoria: i.categoria }));
+      if (!alguno) {
+        messageEl.textContent = `✗ Este código es solo para ${PromoEngine.nombresCategorias(cats)}`;
+        messageEl.className = 'cart__promo-message cart__promo-message--error';
+        return;
+      }
+    }
+
     if (promo) {
       CartService.applyPromo(code, promo);
-      messageEl.textContent = `✓ ${promo.desc} aplicado`;
+      const soloPara = cats.length ? ` (en ${PromoEngine.nombresCategorias(cats)})` : '';
+      messageEl.textContent = `✓ ${promo.desc} aplicado${soloPara}`;
       messageEl.className = 'cart__promo-message cart__promo-message--success';
       input.value = '';
       this.renderCartSidebar();
     } else {
-      messageEl.textContent = '✗ Código inválido o expirado';
+      const motivo = (typeof PromoEngine !== 'undefined' && PromoEngine.motivoCuponInvalido) ? PromoEngine.motivoCuponInvalido(code) : 'Código inválido o expirado';
+      messageEl.textContent = '✗ ' + motivo;
       messageEl.className = 'cart__promo-message cart__promo-message--error';
     }
   },

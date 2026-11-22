@@ -114,6 +114,7 @@ function mapProducto(p) {
     id: String(p.ID ?? ''),
     nombre: p.Nombre || 'Sin nombre',
     categoria: String(p.Categoria || '').toLowerCase().replace(/\s+/g, '-'),
+    categoriaOriginal: p.Categoria || '',
     precioUSD: num(p.PrecioUSD),
     precioARSManual: p.PrecioARSManual ? num(p.PrecioARSManual) : null,
     precioOferta: p.PrecioOferta ? num(p.PrecioOferta) : null,
@@ -225,6 +226,7 @@ export async function getStoreConfig() {
     return {
       promos,
       envios: Array.isArray(envios) && envios.length ? envios : ENVIOS_FALLBACK,
+      categorias: (() => { const c = parseJSONSafe(raw.categorias, []); return Array.isArray(c) ? c : []; })(),
       envioGratisUmbralARS: num(promos.envioGratisUmbralARS) || 150000,
       // El admin lo guarda en la hoja Config; si no esta, el valor por defecto de Vercel
       redondeo: raw.redondeo !== undefined && raw.redondeo !== '' && Number(raw.redondeo) >= 0 ? Number(raw.redondeo) : redondeoGlobal(),
